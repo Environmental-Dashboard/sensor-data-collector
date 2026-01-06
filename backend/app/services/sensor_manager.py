@@ -6,40 +6,27 @@ This is the BRAIN of the whole operation!
 
 WHAT IT DOES:
 ------------
-1. Keeps track of all registered sensors
+1. Keeps track of all registered sensors (persisted to JSON file)
 2. Handles adding, deleting, turning on/off sensors
 3. Schedules automatic data collection (every 60 seconds)
 4. Updates sensor status based on success/failure
 
-THINK OF IT LIKE THIS:
----------------------
-You're a manager at a factory. You have workers (sensors).
-- You hire workers (add sensors)
-- You fire workers (delete sensors)
-- You tell workers to start working (turn on)
-- You tell workers to take a break (turn off)
-- You check on workers (get status)
-- Workers do their job every minute automatically (polling)
-
-HOW AUTOMATIC POLLING WORKS:
----------------------------
-1. User adds a sensor (it starts as "inactive")
-2. User turns it on
-3. We create a scheduled job that runs every 60 seconds
-4. Every 60 seconds:
-   - We call the sensor
-   - Get the data
-   - Convert to CSV
-   - Upload to cloud
-   - Update status (success or error)
-5. User can turn it off to stop
+NOW WITH PERSISTENCE:
+--------------------
+Sensors are saved to a JSON file (sensors_db.json) so they survive restarts!
+- Add a sensor = saved to file
+- Delete a sensor = removed from file
+- Restart server = sensors are loaded back automatically
 
 Author: Frank Kusi Appiah
 """
 
+import json
 import uuid
+import os
 from datetime import datetime, timezone
 from typing import Optional
+from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -58,28 +45,11 @@ class SensorManager:
     """
     The central manager for all sensors.
     
-    This is created once when the server starts and handles everything.
-    
-    EXAMPLE USAGE:
-    -------------
-    # Add a sensor
-    sensor = manager.add_purple_air_sensor(request)
-    
-    # Turn it on (starts collecting data every 60 seconds)
-    await manager.turn_on_sensor(sensor.id)
-    
-    # Check status
-    status = manager.get_sensor_status(sensor.id)
-    
-    # Manually fetch data right now (for testing)
-    result = await manager.trigger_fetch_now(sensor.id)
-    
-    # Turn it off
-    manager.turn_off_sensor(sensor.id)
-    
-    # Delete it
-    manager.delete_sensor(sensor.id)
+    Sensors are now persisted to a JSON file so they survive server restarts!
     """
+    
+    # Where to store the sensors database
+    DB_FILE = Path(__file__).parent.parent.parent / "sensors_db.json"
     
     def __init__(
         self,
@@ -99,15 +69,89 @@ class SensorManager:
         self.tempest_service = tempest_service
         self.polling_interval = polling_interval
         
-        # This is where we store all sensors
-        # It's a dictionary: sensor_id -> sensor_data
-        # In a real production app, this would be a database!
+        # This is where we store all sensors in memory
         self._sensors: dict[str, dict] = {}
         
+        # Load sensors from file
+        self._load_from_file()
+        
         # This is the scheduler - it runs jobs on a timer
-        # Think of it like a cron job or Task Scheduler
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
+        
+        # Restart polling for sensors that were active
+        self._restart_active_sensors()
+    
+    
+    # =========================================================================
+    # DATABASE PERSISTENCE
+    # =========================================================================
+    
+    def _load_from_file(self):
+        """Load sensors from the JSON file."""
+        if not self.DB_FILE.exists():
+            print(f"No existing database found at {self.DB_FILE}")
+            return
+        
+        try:
+            with open(self.DB_FILE, 'r') as f:
+                data = json.load(f)
+            
+            # Convert the data back to proper types
+            for sensor_id, sensor in data.items():
+                # Convert string types back to enums
+                sensor["sensor_type"] = SensorType(sensor["sensor_type"])
+                sensor["status"] = SensorStatus(sensor["status"])
+                
+                # Convert datetime strings back to datetime objects
+                if sensor.get("last_active"):
+                    sensor["last_active"] = datetime.fromisoformat(sensor["last_active"])
+                if sensor.get("created_at"):
+                    sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
+                
+                self._sensors[sensor_id] = sensor
+            
+            print(f"Loaded {len(self._sensors)} sensors from database")
+        except Exception as e:
+            print(f"Error loading sensors database: {e}")
+    
+    
+    def _save_to_file(self):
+        """Save sensors to the JSON file."""
+        try:
+            # Convert to JSON-serializable format
+            data = {}
+            for sensor_id, sensor in self._sensors.items():
+                sensor_copy = sensor.copy()
+                
+                # Convert enums to strings
+                sensor_copy["sensor_type"] = sensor_copy["sensor_type"].value
+                sensor_copy["status"] = sensor_copy["status"].value
+                
+                # Convert datetimes to ISO strings
+                if sensor_copy.get("last_active"):
+                    sensor_copy["last_active"] = sensor_copy["last_active"].isoformat()
+                if sensor_copy.get("created_at"):
+                    sensor_copy["created_at"] = sensor_copy["created_at"].isoformat()
+                
+                data[sensor_id] = sensor_copy
+            
+            with open(self.DB_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+        except Exception as e:
+            print(f"Error saving sensors database: {e}")
+    
+    
+    def _restart_active_sensors(self):
+        """Restart polling for sensors that were active before shutdown."""
+        for sensor_id, sensor in self._sensors.items():
+            if sensor.get("is_active"):
+                print(f"Restarting polling for sensor: {sensor['name']}")
+                if sensor["sensor_type"] == SensorType.PURPLE_AIR:
+                    self._start_polling_job(sensor_id, self._poll_purple_air_sensor)
+                elif sensor["sensor_type"] == SensorType.TEMPEST:
+                    self._start_polling_job(sensor_id, self._poll_tempest_sensor)
     
     
     # =========================================================================
@@ -117,34 +161,18 @@ class SensorManager:
     def add_purple_air_sensor(self, request: AddPurpleAirSensorRequest) -> SensorResponse:
         """
         Register a new Purple Air sensor.
-        
-        What happens:
-        1. We generate a unique ID for this sensor
-        2. We save it in our storage
-        3. We return the sensor info
-        
-        The sensor starts as INACTIVE - you need to call turn_on() to start
-        collecting data!
-        
-        Args:
-            request: The sensor info (ip_address, name, location, upload_token)
-        
-        Returns:
-            The created sensor with its new ID
         """
-        # Generate a unique ID (UUID = Universally Unique Identifier)
         sensor_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
         
-        # Create the sensor record
         sensor_data = {
             "id": sensor_id,
             "sensor_type": SensorType.PURPLE_AIR,
             "name": request.name,
             "location": request.location,
             "ip_address": request.ip_address,
-            "device_id": None,  # Not used for Purple Air
-            "upload_token": request.upload_token,  # The user's cloud token
+            "device_id": None,
+            "upload_token": request.upload_token,
             "status": SensorStatus.INACTIVE,
             "is_active": False,
             "last_active": None,
@@ -152,18 +180,15 @@ class SensorManager:
             "created_at": now,
         }
         
-        # Save it
         self._sensors[sensor_id] = sensor_data
+        self._save_to_file()  # Persist to disk
         
-        # Return the response (without the token for security)
         return SensorResponse(**{k: v for k, v in sensor_data.items() if k != "upload_token"})
     
     
     def add_tempest_sensor(self, request: AddTempestSensorRequest) -> SensorResponse:
         """
         Register a new Tempest weather station.
-        
-        Same as Purple Air but with device_id.
         """
         sensor_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
@@ -184,6 +209,7 @@ class SensorManager:
         }
         
         self._sensors[sensor_id] = sensor_data
+        self._save_to_file()  # Persist to disk
         
         return SensorResponse(**{k: v for k, v in sensor_data.items() if k != "upload_token"})
     
@@ -193,15 +219,7 @@ class SensorManager:
     # =========================================================================
     
     def get_sensor(self, sensor_id: str) -> Optional[SensorResponse]:
-        """
-        Get a single sensor by ID.
-        
-        Args:
-            sensor_id: The sensor's unique ID
-        
-        Returns:
-            The sensor info, or None if not found
-        """
+        """Get a single sensor by ID."""
         sensor_data = self._sensors.get(sensor_id)
         if sensor_data:
             return SensorResponse(**{k: v for k, v in sensor_data.items() if k != "upload_token"})
@@ -209,51 +227,23 @@ class SensorManager:
     
     
     def get_all_sensors(self, sensor_type: Optional[SensorType] = None) -> list[SensorResponse]:
-        """
-        Get all sensors, optionally filtered by type.
-        
-        Args:
-            sensor_type: If provided, only return sensors of this type
-        
-        Returns:
-            List of sensors
-        
-        Examples:
-            # Get ALL sensors
-            all_sensors = manager.get_all_sensors()
-            
-            # Get only Purple Air sensors
-            pa_sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
-        """
+        """Get all sensors, optionally filtered by type."""
         sensors = list(self._sensors.values())
         
         if sensor_type:
             sensors = [s for s in sensors if s["sensor_type"] == sensor_type]
         
-        # Remove tokens from response
         return [SensorResponse(**{k: v for k, v in s.items() if k != "upload_token"}) for s in sensors]
     
     
     def delete_sensor(self, sensor_id: str) -> bool:
-        """
-        Delete a sensor.
-        
-        This stops any running polling and removes the sensor completely.
-        
-        Args:
-            sensor_id: The sensor's unique ID
-        
-        Returns:
-            True if deleted, False if sensor wasn't found
-        """
+        """Delete a sensor permanently."""
         if sensor_id not in self._sensors:
             return False
         
-        # Stop the polling job if it's running
         self._stop_polling_job(sensor_id)
-        
-        # Remove from storage
         del self._sensors[sensor_id]
+        self._save_to_file()  # Persist to disk
         
         return True
     
@@ -263,29 +253,17 @@ class SensorManager:
     # =========================================================================
     
     async def turn_on_sensor(self, sensor_id: str) -> Optional[SensorResponse]:
-        """
-        Turn on a sensor - start collecting data!
-        
-        What happens:
-        1. We create a scheduled job
-        2. The job runs every 60 seconds
-        3. Each run: fetch data, convert to CSV, upload
-        4. Status is set to ACTIVE
-        
-        Args:
-            sensor_id: The sensor to turn on
-        
-        Returns:
-            Updated sensor info, or None if not found
-        """
+        """Turn on a sensor - start collecting data!"""
         if sensor_id not in self._sensors:
             return None
         
         sensor = self._sensors[sensor_id]
         
-        # Already on? Just return
         if sensor["is_active"]:
             return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
+        
+        # Clear old error when turning on
+        sensor["last_error"] = None
         
         # Start polling based on sensor type
         if sensor["sensor_type"] == SensorType.PURPLE_AIR:
@@ -293,55 +271,31 @@ class SensorManager:
         elif sensor["sensor_type"] == SensorType.TEMPEST:
             self._start_polling_job(sensor_id, self._poll_tempest_sensor)
         
-        # Update status
         sensor["is_active"] = True
         sensor["status"] = SensorStatus.ACTIVE
+        self._save_to_file()  # Persist to disk
         
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
     
     
     def turn_off_sensor(self, sensor_id: str) -> Optional[SensorResponse]:
-        """
-        Turn off a sensor - stop collecting data.
-        
-        The sensor stays registered, we just stop the automatic polling.
-        You can turn it back on later.
-        
-        Args:
-            sensor_id: The sensor to turn off
-        
-        Returns:
-            Updated sensor info, or None if not found
-        """
+        """Turn off a sensor - stop collecting data."""
         if sensor_id not in self._sensors:
             return None
         
         sensor = self._sensors[sensor_id]
         
-        # Stop the polling job
         self._stop_polling_job(sensor_id)
         
-        # Update status
         sensor["is_active"] = False
         sensor["status"] = SensorStatus.INACTIVE
+        self._save_to_file()  # Persist to disk
         
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
     
     
     def get_sensor_status(self, sensor_id: str) -> Optional[dict]:
-        """
-        Get detailed status for a sensor.
-        
-        Returns:
-            {
-                "id": "...",
-                "name": "Lab Sensor",
-                "status": "active",
-                "is_active": true,
-                "last_active": "2026-01-06T03:00:00",
-                "last_error": null
-            }
-        """
+        """Get detailed status for a sensor."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
             return None
@@ -357,15 +311,11 @@ class SensorManager:
     
     
     # =========================================================================
-    # POLLING JOBS (The automatic data collection)
+    # POLLING JOBS
     # =========================================================================
     
     def _start_polling_job(self, sensor_id: str, callback):
-        """
-        Start a polling job for a sensor.
-        
-        This creates a job that runs every 60 seconds (or whatever polling_interval is).
-        """
+        """Start a polling job for a sensor."""
         job_id = f"poll_{sensor_id}"
         
         self.scheduler.add_job(
@@ -383,27 +333,21 @@ class SensorManager:
         try:
             self.scheduler.remove_job(job_id)
         except Exception:
-            pass  # Job might not exist
+            pass
     
     
     async def _poll_purple_air_sensor(self, sensor_id: str):
-        """
-        This runs every 60 seconds for active Purple Air sensors.
-        
-        It fetches data from the sensor and uploads it.
-        """
+        """Poll a Purple Air sensor (runs every 60 seconds)."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
             return
         
-        # Call the Purple Air service
         result = await self.purple_air_service.fetch_and_push(
             ip_address=sensor["ip_address"],
             sensor_name=sensor["name"],
             upload_token=sensor["upload_token"]
         )
         
-        # Update status based on result
         if result["status"] == "success":
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
@@ -411,12 +355,12 @@ class SensorManager:
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message", "Unknown error")
+        
+        self._save_to_file()  # Persist status updates
     
     
     async def _poll_tempest_sensor(self, sensor_id: str):
-        """
-        This runs every 60 seconds for active Tempest sensors.
-        """
+        """Poll a Tempest sensor (runs every 60 seconds)."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
             return
@@ -435,24 +379,16 @@ class SensorManager:
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message", "Unknown error")
+        
+        self._save_to_file()  # Persist status updates
     
     
     # =========================================================================
-    # MANUAL FETCH (For Testing)
+    # MANUAL FETCH
     # =========================================================================
     
     async def trigger_fetch_now(self, sensor_id: str) -> dict:
-        """
-        Manually trigger a fetch RIGHT NOW.
-        
-        This is great for testing - you don't have to wait 60 seconds!
-        
-        Args:
-            sensor_id: The sensor to fetch from
-        
-        Returns:
-            The result of the fetch (success with data, or error with message)
-        """
+        """Manually trigger a fetch RIGHT NOW."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
             return {"status": "error", "error_message": "Sensor not found"}
@@ -473,7 +409,6 @@ class SensorManager:
         else:
             return {"status": "error", "error_message": f"Unknown sensor type: {sensor['sensor_type']}"}
         
-        # Update status
         if result["status"] == "success":
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
@@ -481,6 +416,8 @@ class SensorManager:
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message")
+        
+        self._save_to_file()  # Persist status updates
         
         return result
     
@@ -490,11 +427,8 @@ class SensorManager:
     # =========================================================================
     
     async def shutdown(self):
-        """
-        Clean up when the server is shutting down.
-        
-        This stops all polling jobs and closes network connections.
-        """
+        """Clean up when the server is shutting down."""
+        self._save_to_file()  # Save one last time
         self.scheduler.shutdown(wait=False)
         await self.purple_air_service.close()
         await self.tempest_service.close()

@@ -34,6 +34,10 @@ backend/tunnel_output.tmp
 backend/startup.log
 backend/backend.log
 backend/tunnel.log
+backend/tunnel.lock
+
+# Sensors database (contains tokens - DO NOT COMMIT)
+backend/sensors_db.json
 
 # IDE
 .idea/

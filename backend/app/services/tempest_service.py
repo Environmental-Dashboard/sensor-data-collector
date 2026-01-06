@@ -206,7 +206,7 @@ class TempestService:
     
     async def push_to_endpoint(self, csv_data: str, sensor_name: str, upload_token: str) -> dict:
         """Upload CSV to the cloud."""
-        headers = {"Authorization": f"Bearer {upload_token}"}
+        headers = {"user-token": upload_token}
         
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         clean_name = "".join(c if c.isalnum() else "_" for c in sensor_name)

@@ -75,13 +75,13 @@ class PurpleAirService:
     # The real upload URL - where data goes to be stored
     UPLOAD_URL = "https://oberlin.communityhub.cloud/api/data-hub/upload/csv"
     
-    def __init__(self, request_timeout: float = 15.0):
+    def __init__(self, request_timeout: float = 30.0):
         """
         Set up the service.
         
         Args:
             request_timeout: How long to wait for sensor/upload responses (seconds)
-                            Default is 15 seconds - increase if your network is slow.
+                            Default is 30 seconds - increase if your network is slow.
         """
         # This is our HTTP client - we use it to make web requests
         # We keep one around so connections can be reused (faster!)
@@ -216,9 +216,9 @@ class PurpleAirService:
             }
         """
         # Set up the authentication header
-        # The token proves we're allowed to upload
+        # The API expects "user-token" header (not Bearer token)
         headers = {
-            "Authorization": f"Bearer {upload_token}"
+            "user-token": upload_token
         }
         
         # Create a filename with the sensor name and timestamp
