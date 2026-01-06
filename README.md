@@ -69,36 +69,33 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 
 ### 1. Start the Backend
 
-```bash
+```powershell
 cd backend
 python -m venv venv
-.\venv\Scripts\Activate.ps1   # Windows
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --port 8000
 ```
 
 ### 2. Start Cloudflare Tunnel
 
-```bash
+```powershell
 cloudflared tunnel --url http://localhost:8000
 ```
 
 This gives you a URL like `https://random-words.trycloudflare.com`
 
-### 3. Update Frontend Environment
+### 3. Update Frontend with Tunnel URL
 
-Set the tunnel URL in Vercel:
-1. Go to [Vercel Dashboard](https://vercel.com) → Your Project → Settings → Environment Variables
-2. Set `VITE_API_URL` to your tunnel URL
-3. Redeploy
+Set the tunnel URL in Vercel environment variables (see "Deploying Frontend" below).
 
 ---
 
-## Running Without Terminal Windows (Hidden Mode)
+## Running Without Terminal Windows
 
 Double-click `backend/start-hidden.vbs` to run both backend and tunnel in the background.
 
-To stop: Open Task Manager → End `python.exe` and `cloudflared.exe`
+**To stop:** Open Task Manager → End `python.exe` and `cloudflared.exe`
 
 ---
 
@@ -108,13 +105,10 @@ To stop: Open Task Manager → End `python.exe` and `cloudflared.exe`
 sensor_data_collector/
 ├── backend/                    # Python FastAPI (runs locally)
 │   ├── app/
-│   │   ├── main.py            # App entry point, CORS config
-│   │   ├── models/            # Data models (Pydantic)
+│   │   ├── main.py            # App entry, CORS config
+│   │   ├── models/            # Data models
 │   │   ├── routers/           # API endpoints
 │   │   └── services/          # Business logic
-│   │       ├── sensor_manager.py      # Manages all sensors
-│   │       ├── purple_air_service.py  # Purple Air logic
-│   │       └── tempest_service.py     # Tempest logic
 │   ├── requirements.txt
 │   ├── start-backend.ps1      # Start backend
 │   ├── start-tunnel.ps1       # Start tunnel
@@ -122,12 +116,67 @@ sensor_data_collector/
 │
 └── frontend/                   # React app (hosted on Vercel)
     ├── src/
-    │   ├── App.tsx            # Main UI component
+    │   ├── App.tsx            # Main UI
     │   ├── api.ts             # API client
     │   ├── types.ts           # TypeScript types
     │   └── index.css          # Styles
-    ├── vercel.json            # Vercel config
-    └── package.json
+    └── vercel.json
+```
+
+---
+
+## Deploying Frontend to Vercel
+
+### First Time Setup
+
+1. Install Vercel CLI:
+   ```powershell
+   npm install -g vercel
+   ```
+
+2. Login to Vercel:
+   ```powershell
+   vercel login
+   ```
+
+3. Link the project (run from `frontend/` folder):
+   ```powershell
+   cd frontend
+   vercel link
+   ```
+
+### Deploy Changes
+
+After making changes to the frontend:
+
+```powershell
+cd frontend
+npm run build          # Build locally first to check for errors
+vercel --prod          # Deploy to production
+```
+
+### Set Backend URL (Environment Variable)
+
+The frontend needs to know where the backend is. Set this in Vercel:
+
+**Option 1: Via Vercel Dashboard**
+1. Go to https://vercel.com → Your Project → Settings → Environment Variables
+2. Add: `VITE_API_URL` = `https://your-tunnel-url.trycloudflare.com`
+3. Redeploy
+
+**Option 2: Via CLI**
+```powershell
+vercel env add VITE_API_URL production
+# Enter your tunnel URL when prompted
+vercel --prod  # Redeploy
+```
+
+### Custom Domain Alias
+
+To use a custom subdomain like `ed-sensors-dashboard.vercel.app`:
+
+```powershell
+vercel alias set <deployment-url> ed-sensors-dashboard.vercel.app
 ```
 
 ---
@@ -137,55 +186,69 @@ sensor_data_collector/
 ### Frontend Changes
 
 1. Edit files in `frontend/src/`
-2. Test locally: `cd frontend && npm run dev`
-3. Deploy: `cd frontend && npx vercel --prod`
+2. Test locally:
+   ```powershell
+   cd frontend
+   npm run dev
+   ```
+3. Deploy:
+   ```powershell
+   npm run build
+   vercel --prod
+   ```
 
 **Key files:**
-- `App.tsx` - UI components and logic
-- `api.ts` - API calls to backend
-- `index.css` - Styling (supports light/dark mode)
-- `types.ts` - TypeScript interfaces
+| File | Purpose |
+|------|---------|
+| `App.tsx` | Main UI component, tabs, modals |
+| `api.ts` | API calls to backend |
+| `index.css` | All styling (light/dark mode) |
+| `types.ts` | TypeScript interfaces |
 
 ### Backend Changes
 
 1. Edit files in `backend/app/`
-2. Restart uvicorn (auto-reloads with `--reload` flag)
+2. Restart uvicorn (auto-reloads if using `--reload`)
 
 **Key files:**
-- `main.py` - CORS origins, startup
-- `routers/sensors.py` - API endpoints
-- `services/sensor_manager.py` - Sensor logic
-- `services/purple_air_service.py` - Purple Air specific
-
-### Adding a New Sensor Type
-
-1. Create `backend/app/services/new_sensor_service.py`
-2. Add models in `backend/app/models/sensor.py`
-3. Add routes in `backend/app/routers/sensors.py`
-4. Update `sensor_manager.py` to handle the new type
-5. Update frontend `App.tsx` modal form
+| File | Purpose |
+|------|---------|
+| `main.py` | CORS config, startup |
+| `routers/sensors.py` | API endpoints |
+| `services/sensor_manager.py` | Sensor orchestration |
+| `services/purple_air_service.py` | Purple Air logic |
+| `services/tempest_service.py` | Tempest logic |
 
 ---
 
 ## Troubleshooting
 
 ### Dashboard shows "Disconnected"
-- Is the backend running? Check `http://localhost:8000/health`
-- Is the tunnel running? Check if the tunnel URL works
-- Is `VITE_API_URL` set correctly in Vercel?
+
+1. **Is backend running?**
+   ```powershell
+   curl http://localhost:8000/health
+   ```
+
+2. **Is tunnel running?**
+   - Check if `cloudflared` process is active
+   - Try the tunnel URL in browser
+
+3. **Is `VITE_API_URL` correct?**
+   - Check Vercel environment variables
+   - Must match your current tunnel URL
+   - Redeploy after changing
 
 ### Sensor shows "Error"
-- Can the backend reach the sensor? Try `curl http://<sensor-ip>/json`
-- Is the sensor on the same network as the computer running the backend?
 
-### Data not uploading
-- Check the upload token is correct
-- Check `oberlin.communityhub.cloud` is accessible
+- Can backend reach sensor? `curl http://<sensor-ip>/json`
+- Is sensor on same network as backend computer?
 
-### Frontend won't load
+### Changes not showing on dashboard
+
+- Did you run `vercel --prod`?
 - Clear browser cache
-- Check browser console for errors
-- Verify Vercel deployment succeeded
+- Check Vercel deployment logs
 
 ---
 
@@ -197,13 +260,12 @@ sensor_data_collector/
 | `/api/sensors/` | GET | List all sensors |
 | `/api/sensors/purple-air` | POST | Add Purple Air sensor |
 | `/api/sensors/tempest` | POST | Add Tempest sensor |
-| `/api/sensors/{id}` | GET | Get sensor details |
 | `/api/sensors/{id}` | DELETE | Delete sensor |
 | `/api/sensors/{id}/turn-on` | POST | Start polling |
 | `/api/sensors/{id}/turn-off` | POST | Stop polling |
 | `/api/sensors/{id}/fetch-now` | POST | Manual fetch |
 
-Full docs at: `http://localhost:8000/docs`
+Full API docs: `http://localhost:8000/docs`
 
 ---
 
