@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Activity, Wind, CloudSun, Droplets, Database,
+  Wind, CloudSun, Droplets, Database,
   Plus, Power, PowerOff, Play, Trash2, X,
   Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
 import * as api from './api';
+import iconImage from './images/icon.png';
 
 // Format relative time
 function timeAgo(timestamp: string | null): string {
@@ -172,7 +173,7 @@ export default function App() {
       <header className="header">
         <div className="logo">
           <div className="logo-icon">
-            <Activity size={24} color="white" />
+            <img src={iconImage} alt="Sensor Dashboard" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <h1>Sensor Dashboard</h1>
         </div>
