@@ -14,6 +14,14 @@ Short version: this box talks to local sensors, turns their JSON into CSV, and s
 - Backend: FastAPI + APScheduler (polls every 60s) + httpx (sensor calls) + Pydantic (validation)
 - Uploads: CSV to `https://oberlin.communityhub.cloud/api/data-hub/upload/csv` using the per-sensor token you supply
 
+## The flow (in plain words)
+- You host the React dashboard (Vercel/Netlify/etc.). It only calls the backend URL you give it.
+- You run the FastAPI backend on a local machine that can reach the sensors by LAN IP.
+- You expose that local backend to the hosted frontend with a Cloudflare Tunnel URL.
+- When you add a sensor in the UI, the backend stores its config (IP, name, location, upload token).
+- When you turn a sensor on, the backend schedules a 60s job: fetch JSON from the sensor’s local IP, turn it into CSV, then POST it to `oberlin.communityhub.cloud/api/data-hub/upload/csv` with the token you provided for that sensor.
+- “Fetch now” runs the same pipeline immediately (one-off) so you can test connectivity and uploads.
+
 ## Repo map (human edition)
 ```
 backend/                    Python FastAPI app
