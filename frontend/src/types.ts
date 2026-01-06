@@ -39,3 +39,10 @@ export interface AddTempestRequest {
   upload_token: string;
 }
 
+export interface AddWaterQualityRequest {
+  device_id: string;
+  ubidots_token: string;
+  name: string;
+  location: string;
+  upload_token: string;
+}

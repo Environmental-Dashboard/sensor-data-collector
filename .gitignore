@@ -26,6 +26,14 @@ yarn-error.log*
 # Build outputs
 frontend/dist/
 *.log
+*.tmp
+
+# Tunnel runtime files
+backend/tunnel_url.txt
+backend/tunnel_output.tmp
+backend/startup.log
+backend/backend.log
+backend/tunnel.log
 
 # IDE
 .idea/
