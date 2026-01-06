@@ -19,6 +19,14 @@ function timeAgo(timestamp: string | null): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
+// Tab configuration
+const tabs = [
+  { id: 'purple_air' as SensorType, label: 'Air Quality', icon: Wind, color: 'purple' },
+  { id: 'tempest' as SensorType, label: 'Weather', icon: CloudSun, color: 'cyan' },
+  { id: 'water_quality' as SensorType, label: 'Water Quality', icon: Droplets, color: 'blue' },
+  { id: 'mayfly' as SensorType, label: 'Mayfly', icon: Database, color: 'amber' },
+];
+
 // Toast type
 interface Toast {
   id: string;
@@ -30,7 +38,8 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sensors, setSensors] = useState<Sensor[]>([]);
-  const [modalType, setModalType] = useState<SensorType | null>(null);
+  const [activeTab, setActiveTab] = useState<SensorType>('purple_air');
+  const [modalOpen, setModalOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -70,7 +79,6 @@ export default function App() {
     };
     init();
     
-    // Poll health every 30s
     const interval = setInterval(checkConnection, 30000);
     return () => clearInterval(interval);
   }, [checkConnection, fetchSensors]);
@@ -131,27 +139,29 @@ export default function App() {
 
   const handleAddSensor = async (data: AddPurpleAirRequest | AddTempestRequest) => {
     try {
-      if (modalType === 'purple_air') {
+      if (activeTab === 'purple_air') {
         await api.addPurpleAirSensor(data as AddPurpleAirRequest);
-      } else if (modalType === 'tempest') {
+      } else if (activeTab === 'tempest') {
         await api.addTempestSensor(data as AddTempestRequest);
       }
       showToast('success', 'Sensor added!');
-      setModalType(null);
+      setModalOpen(false);
       fetchSensors();
     } catch (e: any) {
       throw e;
     }
   };
 
-  // Filter sensors by type
-  const getSensorsByType = (type: SensorType) => sensors.filter(s => s.sensor_type === type);
+  // Get sensors for current tab
+  const currentSensors = sensors.filter(s => s.sensor_type === activeTab);
+  const activeCount = currentSensors.filter(s => s.is_active).length;
+  const currentTab = tabs.find(t => t.id === activeTab)!;
+  const isImplemented = activeTab === 'purple_air' || activeTab === 'tempest';
 
   if (loading) {
     return (
-      <div className="app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        <Loader2 size={40} style={{ animation: 'spin 1s linear infinite' }} />
-        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <div className="app loading-screen">
+        <Loader2 size={40} className="spinner" />
       </div>
     );
   }
@@ -173,80 +183,92 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main */}
+      {/* Tabs */}
+      <nav className="tabs">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const count = sensors.filter(s => s.sensor_type === tab.id).length;
+          const active = sensors.filter(s => s.sensor_type === tab.id && s.is_active).length;
+          return (
+            <button
+              key={tab.id}
+              className={`tab ${activeTab === tab.id ? 'active' : ''} ${tab.color}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <Icon size={20} />
+              <span className="tab-label">{tab.label}</span>
+              {count > 0 && (
+                <span className="tab-count">{active}/{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Content */}
       <main className="main">
-        <div className="grid">
-          {/* Purple Air */}
-          <SensorGroup
-            type="purple_air"
-            title="Air Quality"
-            subtitle="Purple Air Sensors"
-            icon={<Wind size={24} />}
-            sensors={getSensorsByType('purple_air')}
-            onAdd={() => setModalType('purple_air')}
-            onTurnOn={handleTurnOn}
-            onTurnOff={handleTurnOff}
-            onFetchNow={handleFetchNow}
-            onDelete={handleDelete}
-            actionLoading={actionLoading}
-          />
-
-          {/* Tempest */}
-          <SensorGroup
-            type="tempest"
-            title="Weather"
-            subtitle="Tempest Stations"
-            icon={<CloudSun size={24} />}
-            sensors={getSensorsByType('tempest')}
-            onAdd={() => setModalType('tempest')}
-            onTurnOn={handleTurnOn}
-            onTurnOff={handleTurnOff}
-            onFetchNow={handleFetchNow}
-            onDelete={handleDelete}
-            actionLoading={actionLoading}
-          />
-
-          {/* Water Quality */}
-          <div className="group-card water-quality">
-            <div className="group-header">
-              <div className="group-info">
-                <div className="group-icon"><Droplets size={24} /></div>
-                <div className="group-title">
-                  <h2>Water Quality</h2>
-                  <p>Water Sensors</p>
-                </div>
+        <div className="content-card">
+          {/* Content Header */}
+          <div className={`content-header ${currentTab.color}`}>
+            <div className="content-header-left">
+              <div className="content-icon">
+                <currentTab.icon size={28} />
+              </div>
+              <div>
+                <h2>{currentTab.label}</h2>
+                <p>{activeCount} of {currentSensors.length} sensors active</p>
               </div>
             </div>
-            <div className="coming-soon">
-              <div className="coming-soon-icon">🚧</div>
-              <p>Coming Soon!</p>
-            </div>
+            {isImplemented && (
+              <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+                <Plus size={18} />
+                Add Sensor
+              </button>
+            )}
           </div>
 
-          {/* Mayfly */}
-          <div className="group-card mayfly">
-            <div className="group-header">
-              <div className="group-info">
-                <div className="group-icon"><Database size={24} /></div>
-                <div className="group-title">
-                  <h2>Mayfly</h2>
-                  <p>Data Loggers</p>
-                </div>
+          {/* Content Body */}
+          <div className="content-body">
+            {!isImplemented ? (
+              <div className="coming-soon">
+                <div className="coming-soon-icon">🚧</div>
+                <h3>Coming Soon!</h3>
+                <p>We're working on adding support for {currentTab.label} sensors.</p>
               </div>
-            </div>
-            <div className="coming-soon">
-              <div className="coming-soon-icon">🚧</div>
-              <p>Coming Soon!</p>
-            </div>
+            ) : currentSensors.length === 0 ? (
+              <div className="empty-state">
+                <currentTab.icon size={48} strokeWidth={1} />
+                <h3>No Sensors Yet</h3>
+                <p>Add your first {currentTab.label.toLowerCase()} sensor to get started.</p>
+                <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+                  <Plus size={18} />
+                  Add Sensor
+                </button>
+              </div>
+            ) : (
+              <div className="sensor-grid">
+                {currentSensors.map(sensor => (
+                  <SensorCard
+                    key={sensor.id}
+                    sensor={sensor}
+                    onTurnOn={() => handleTurnOn(sensor)}
+                    onTurnOff={() => handleTurnOff(sensor)}
+                    onFetchNow={() => handleFetchNow(sensor)}
+                    onDelete={() => handleDelete(sensor)}
+                    loading={actionLoading === sensor.id}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </main>
 
       {/* Add Modal */}
-      {modalType && (
+      {modalOpen && (
         <AddSensorModal
-          type={modalType}
-          onClose={() => setModalType(null)}
+          type={activeTab}
+          onClose={() => setModalOpen(false)}
           onSubmit={handleAddSensor}
         />
       )}
@@ -266,66 +288,8 @@ export default function App() {
   );
 }
 
-// Sensor Group Component
-interface SensorGroupProps {
-  type: SensorType;
-  title: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  sensors: Sensor[];
-  onAdd: () => void;
-  onTurnOn: (s: Sensor) => void;
-  onTurnOff: (s: Sensor) => void;
-  onFetchNow: (s: Sensor) => void;
-  onDelete: (s: Sensor) => void;
-  actionLoading: string | null;
-}
-
-function SensorGroup({ type, title, subtitle, icon, sensors, onAdd, onTurnOn, onTurnOff, onFetchNow, onDelete, actionLoading }: SensorGroupProps) {
-  const activeCount = sensors.filter(s => s.is_active).length;
-
-  return (
-    <div className={`group-card ${type.replace('_', '-')}`}>
-      <div className="group-header">
-        <div className="group-info">
-          <div className="group-icon">{icon}</div>
-          <div className="group-title">
-            <h2>{title}</h2>
-            <p>{subtitle}</p>
-          </div>
-        </div>
-        <div className="group-count">{activeCount}/{sensors.length} active</div>
-      </div>
-
-      <div className="group-actions">
-        <button className="btn btn-primary" onClick={onAdd}>
-          <Plus size={16} /> Add Sensor
-        </button>
-      </div>
-
-      <div className="sensor-list">
-        {sensors.length === 0 ? (
-          <div className="sensor-empty">No sensors yet. Click "Add Sensor" to get started!</div>
-        ) : (
-          sensors.map(sensor => (
-            <SensorItem
-              key={sensor.id}
-              sensor={sensor}
-              onTurnOn={() => onTurnOn(sensor)}
-              onTurnOff={() => onTurnOff(sensor)}
-              onFetchNow={() => onFetchNow(sensor)}
-              onDelete={() => onDelete(sensor)}
-              loading={actionLoading === sensor.id}
-            />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Sensor Item Component
-interface SensorItemProps {
+// Sensor Card Component
+interface SensorCardProps {
   sensor: Sensor;
   onTurnOn: () => void;
   onTurnOff: () => void;
@@ -334,13 +298,13 @@ interface SensorItemProps {
   loading: boolean;
 }
 
-function SensorItem({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading }: SensorItemProps) {
+function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading }: SensorCardProps) {
   return (
-    <div className="sensor-item">
-      <div className="sensor-head">
+    <div className={`sensor-card ${sensor.status}`}>
+      <div className="sensor-card-header">
         <div>
-          <div className="sensor-name">{sensor.name}</div>
-          <div className="sensor-location">{sensor.location}</div>
+          <h3 className="sensor-name">{sensor.name}</h3>
+          <p className="sensor-location">{sensor.location}</p>
         </div>
         <div className={`sensor-status ${sensor.status}`}>
           {sensor.status === 'active' && <Power size={12} />}
@@ -352,9 +316,15 @@ function SensorItem({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
 
       <div className="sensor-meta">
         {sensor.ip_address && (
-          <span><Globe size={12} /> <code>{sensor.ip_address}</code></span>
+          <div className="meta-item">
+            <Globe size={14} />
+            <code>{sensor.ip_address}</code>
+          </div>
         )}
-        <span><Clock size={12} /> {timeAgo(sensor.last_active)}</span>
+        <div className="meta-item">
+          <Clock size={14} />
+          <span>{timeAgo(sensor.last_active)}</span>
+        </div>
       </div>
 
       {sensor.last_error && (
@@ -364,18 +334,18 @@ function SensorItem({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
       <div className="sensor-actions">
         {sensor.is_active ? (
           <button className="btn btn-danger" onClick={onTurnOff} disabled={loading}>
-            <PowerOff size={14} /> Turn Off
+            <PowerOff size={16} /> Turn Off
           </button>
         ) : (
           <button className="btn btn-success" onClick={onTurnOn} disabled={loading}>
-            <Power size={14} /> Turn On
+            <Power size={16} /> Turn On
           </button>
         )}
         <button className="btn" onClick={onFetchNow} disabled={loading}>
-          <Play size={14} /> Fetch
+          <Play size={16} /> Fetch Now
         </button>
         <button className="btn btn-icon btn-danger" onClick={onDelete} disabled={loading}>
-          <Trash2 size={14} />
+          <Trash2 size={16} />
         </button>
       </div>
     </div>
@@ -425,11 +395,13 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
     }
   };
 
+  const title = type === 'purple_air' ? 'Add Air Quality Sensor' : 'Add Weather Station';
+
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <h2>Add {type === 'purple_air' ? 'Purple Air' : 'Tempest'} Sensor</h2>
+          <h2>{title}</h2>
           <button className="modal-close" onClick={onClose}><X size={20} /></button>
         </div>
 
@@ -503,7 +475,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
           <div className="modal-footer">
             <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={16} />}
+              {loading ? <Loader2 size={16} className="spinner" /> : <Plus size={16} />}
               Add Sensor
             </button>
           </div>
@@ -512,4 +484,3 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
     </div>
   );
 }
-
