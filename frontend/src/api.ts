@@ -30,7 +30,7 @@ export const getAllSensors = () => api<SensorListResponse>('/api/sensors/');
 export const getPurpleAirSensors = () => api<SensorListResponse>('/api/sensors/purple-air');
 export const getTempestSensors = () => api<SensorListResponse>('/api/sensors/tempest');
 export const getWaterQualitySensors = () => api<SensorListResponse>('/api/sensors/water-quality');
-export const getMayflySensors = () => api<SensorListResponse>('/api/sensors/mayfly');
+export const getDOSensors = () => api<SensorListResponse>('/api/sensors/do-sensor');
 
 // Add sensors
 export const addPurpleAirSensor = (data: AddPurpleAirRequest) =>

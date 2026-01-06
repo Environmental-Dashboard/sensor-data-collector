@@ -18,7 +18,7 @@ from .sensor import (
     AddPurpleAirSensorRequest,
     AddTempestSensorRequest,
     AddWaterQualitySensorRequest,
-    AddMayflySensorRequest,
+    AddDOSensorRequest,
     UpdateSensorRequest,
     
     # What we send back to the frontend
@@ -37,7 +37,7 @@ __all__ = [
     "AddPurpleAirSensorRequest",
     "AddTempestSensorRequest",
     "AddWaterQualitySensorRequest",
-    "AddMayflySensorRequest",
+    "AddDOSensorRequest",
     "UpdateSensorRequest",
     "SensorResponse",
     "SensorListResponse",

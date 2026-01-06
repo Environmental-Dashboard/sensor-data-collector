@@ -43,11 +43,11 @@ class SensorType(str, Enum):
     PURPLE_AIR = Air quality sensor (measures PM2.5, dust, etc.)
     TEMPEST = Weather station (temp, wind, rain, lightning)
     WATER_QUALITY = Water sensor (coming soon)
-    MAYFLY = Data logger (coming soon)
+    DO_SENSOR = Dissolved Oxygen sensor (coming soon)
     """
     PURPLE_AIR = "purple_air"
     WATER_QUALITY = "water_quality"
-    MAYFLY = "mayfly"
+    DO_SENSOR = "do_sensor"
     TEMPEST = "tempest"
 
 
@@ -157,11 +157,11 @@ class AddWaterQualitySensorRequest(BaseModel):
     upload_token: str = Field(..., description="Your upload token")
 
 
-class AddMayflySensorRequest(BaseModel):
+class AddDOSensorRequest(BaseModel):
     """
-    Mayfly Datalogger - Coming soon!
+    Dissolved Oxygen Sensor - Coming soon!
     
-    Mayfly is a data logger for environmental monitoring.
+    DO sensors measure dissolved oxygen levels in water.
     We'll add support for this later.
     """
     name: str = Field(..., description="Sensor name")

@@ -1,5 +1,5 @@
 // Sensor types
-export type SensorType = 'purple_air' | 'tempest' | 'water_quality' | 'mayfly';
+export type SensorType = 'purple_air' | 'tempest' | 'water_quality' | 'do_sensor';
 export type SensorStatus = 'active' | 'inactive' | 'error' | 'offline';
 
 // A sensor from the API

@@ -11,6 +11,7 @@ Set-Location $scriptDir
 $logFile = "$scriptDir\tunnel.log"
 $tunnelUrlFile = "$scriptDir\tunnel_url.txt"
 $tunnelOutput = "$scriptDir\tunnel_output.tmp"
+$lockFile = "$scriptDir\tunnel.lock"
 
 function Log {
     param([string]$message)
@@ -18,15 +19,31 @@ function Log {
     "[$timestamp] $message" | Out-File -FilePath $logFile -Append
 }
 
+Log "=========================================="
+Log "Starting tunnel script (PID: $PID)..."
+
+# Always clean up old lock file and cloudflared processes on startup
+# This ensures a fresh start after reboot
+Remove-Item $lockFile -ErrorAction SilentlyContinue
+
+# Kill ALL existing cloudflared processes
+$existingCloudflareds = Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue
+if ($existingCloudflareds) {
+    Log "Killing existing cloudflared processes..."
+    $existingCloudflareds | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+
+# Write our PID to lock file
+$PID | Out-File -FilePath $lockFile -Force
+
 # Clear old files
 Remove-Item $tunnelOutput -ErrorAction SilentlyContinue
 
-Log "Starting tunnel script..."
-
-# Wait for backend to be ready (longer wait, more retries)
+# Wait for backend to be ready (increased timeout)
 Log "Waiting for backend to start..."
 $backendReady = $false
-for ($i = 0; $i -lt 60; $i++) {
+for ($i = 0; $i -lt 90; $i++) {
     try {
         $response = Invoke-WebRequest -Uri "http://localhost:8000/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
@@ -35,15 +52,16 @@ for ($i = 0; $i -lt 60; $i++) {
             break
         }
     } catch {
-        if ($i % 5 -eq 0) {
-            Log "Waiting for backend... ($($i+1)/60)"
+        if ($i % 10 -eq 0) {
+            Log "Waiting for backend... ($($i+1)/90)"
         }
         Start-Sleep -Seconds 1
     }
 }
 
 if (-not $backendReady) {
-    Log "WARNING: Backend may not be running after 60 seconds!"
+    Log "WARNING: Backend may not be running after 90 seconds!"
+    # Continue anyway - the tunnel might still work
 }
 
 # Start cloudflared and capture output to extract URL
@@ -134,18 +152,13 @@ if ($tunnelUrl) {
     Log "ERROR: Could not capture tunnel URL within 90 seconds"
 }
 
-# Keep monitoring the process
-Log "Tunnel monitoring started..."
+# Keep monitoring the process (don't restart - let the startup script handle that)
+Log "Tunnel monitoring started. Will exit if tunnel dies."
 while ($true) {
     if ($process.HasExited) {
-        Log "Tunnel process exited with code: $($process.ExitCode). Restarting in 10 seconds..."
-        Start-Sleep -Seconds 10
-        
-        # Restart the process
-        $process = New-Object System.Diagnostics.Process
-        $process.StartInfo = $pinfo
-        $process.Start() | Out-Null
-        Log "Tunnel restarted (PID: $($process.Id))"
+        Log "Tunnel process exited with code: $($process.ExitCode). Cleaning up..."
+        Remove-Item $lockFile -ErrorAction SilentlyContinue
+        exit 1
     }
     Start-Sleep -Seconds 30
 }

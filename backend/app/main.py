@@ -26,7 +26,8 @@ class Config:
     
     # CORS - Allow the frontend to connect
     CORS_ORIGINS = [
-        "https://ed-sensors-dashboard.vercel.app",  # Production frontend
+        "https://ed-sensor-dashboard.vercel.app",   # Production frontend
+        "https://ed-sensors-dashboard.vercel.app",  # Alternate
         "http://localhost:5173",                     # Local dev
         "http://localhost:3000",
         "http://127.0.0.1:5173",

@@ -40,8 +40,8 @@ GET    /api/sensors/tempest       - List Tempest sensors
 POST   /api/sensors/water-quality - Add Water Quality sensor (coming soon)
 GET    /api/sensors/water-quality - List Water Quality sensors
 
-POST   /api/sensors/mayfly        - Add Mayfly datalogger (coming soon)
-GET    /api/sensors/mayfly        - List Mayfly dataloggers
+POST   /api/sensors/do-sensor     - Add DO sensor (coming soon)
+GET    /api/sensors/do-sensor     - List DO sensors
 
 Author: Frank Kusi Appiah
 """
@@ -54,7 +54,7 @@ from app.models import (
     AddPurpleAirSensorRequest,
     AddTempestSensorRequest,
     AddWaterQualitySensorRequest,
-    AddMayflySensorRequest,
+    AddDOSensorRequest,
     SensorResponse,
     SensorListResponse,
 )
@@ -207,26 +207,26 @@ async def get_all_water_quality_sensors(manager = Depends(get_sensor_manager)):
 
 
 # =============================================================================
-# MAYFLY ENDPOINTS (Coming Soon!)
+# DO SENSOR ENDPOINTS (Coming Soon!)
 # =============================================================================
 
-@router.post("/mayfly", response_model=SensorResponse)
-async def add_mayfly_sensor(
-    request: AddMayflySensorRequest,
+@router.post("/do-sensor", response_model=SensorResponse)
+async def add_do_sensor(
+    request: AddDOSensorRequest,
     manager = Depends(get_sensor_manager)
 ):
     """
-    Add a Mayfly datalogger.
+    Add a Dissolved Oxygen sensor.
     
     Sorry, this isn't ready yet! We're still working on it.
     """
-    raise HTTPException(status_code=501, detail="Mayfly dataloggers aren't ready yet. Coming soon!")
+    raise HTTPException(status_code=501, detail="DO sensors aren't ready yet. Coming soon!")
 
 
-@router.get("/mayfly", response_model=SensorListResponse)
-async def get_all_mayfly_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Mayfly dataloggers."""
-    sensors = manager.get_all_sensors(SensorType.MAYFLY)
+@router.get("/do-sensor", response_model=SensorListResponse)
+async def get_all_do_sensors(manager = Depends(get_sensor_manager)):
+    """Get all Dissolved Oxygen sensors."""
+    sensors = manager.get_all_sensors(SensorType.DO_SENSOR)
     return SensorListResponse(sensors=sensors, total=len(sensors))
 
 

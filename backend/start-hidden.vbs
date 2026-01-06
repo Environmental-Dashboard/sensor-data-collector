@@ -9,14 +9,15 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 ' Log startup
 logFile = scriptDir & "\startup.log"
 Set logStream = fso.OpenTextFile(logFile, 8, True)
+logStream.WriteLine Now & " - =========================================="
 logStream.WriteLine Now & " - Starting Sensor Data Collector..."
 logStream.Close
 
 ' Start the backend server hidden (no window at all)
 WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File """ & scriptDir & "\start-backend.ps1""", 0, False
 
-' Wait 3 seconds before starting tunnel
-WScript.Sleep 3000
+' Wait 8 seconds for backend to start (increased from 3)
+WScript.Sleep 8000
 
 ' Start the Cloudflare tunnel hidden (no window at all)
 WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File """ & scriptDir & "\start-tunnel.ps1""", 0, False

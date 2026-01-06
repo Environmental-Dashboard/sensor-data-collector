@@ -25,7 +25,7 @@ const tabs = [
   { id: 'purple_air' as SensorType, label: 'Air Quality', icon: Wind, color: 'purple' },
   { id: 'tempest' as SensorType, label: 'Weather', icon: CloudSun, color: 'cyan' },
   { id: 'water_quality' as SensorType, label: 'Water Quality', icon: Droplets, color: 'blue' },
-  { id: 'mayfly' as SensorType, label: 'Mayfly', icon: Database, color: 'amber' },
+  { id: 'do_sensor' as SensorType, label: 'DO Sensor', icon: Database, color: 'amber' },
 ];
 
 // Toast type
