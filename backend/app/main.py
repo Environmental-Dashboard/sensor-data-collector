@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI):
     # ========== STARTUP ==========
     print()
     print("=" * 60)
-    print("🚀 SENSOR DATA COLLECTOR")
+    print("SENSOR DATA COLLECTOR")
     print("=" * 60)
     
     # Create services
@@ -114,17 +114,17 @@ async def lifespan(app: FastAPI):
     # Give the router access to the manager
     set_sensor_manager(sensor_manager)
     
-    print(f"✅ Ready to go!")
-    print(f"   Polling every {Config.POLLING_INTERVAL} seconds")
-    print(f"   Data uploads to: oberlin.communityhub.cloud")
+    print(f"[OK] Ready to go!")
+    print(f"     Polling every {Config.POLLING_INTERVAL} seconds")
+    print(f"     Data uploads to: oberlin.communityhub.cloud")
     print()
-    print("📡 Supported Sensors:")
-    print("   ✅ Purple Air (air quality)")
-    print("   ✅ Tempest (weather)")
-    print("   🚧 Water Quality (coming soon)")
-    print("   🚧 Mayfly (coming soon)")
+    print("Supported Sensors:")
+    print("   [OK] Purple Air (air quality)")
+    print("   [OK] Tempest (weather)")
+    print("   [..] Water Quality (coming soon)")
+    print("   [..] Mayfly (coming soon)")
     print()
-    print("📖 API Docs: http://localhost:8000/docs")
+    print("API Docs: http://localhost:8000/docs")
     print("=" * 60)
     print()
     
@@ -132,9 +132,9 @@ async def lifespan(app: FastAPI):
     
     # ========== SHUTDOWN ==========
     print()
-    print("🛑 Shutting down...")
+    print("Shutting down...")
     await sensor_manager.shutdown()
-    print("✅ Goodbye!")
+    print("Goodbye!")
 
 
 # =============================================================================
