@@ -1,142 +1,58 @@
-# Sensor Data Collector 🌡️
+# Sensor Data Collector (plain-English guide)
 
-Collect environmental sensor data and upload it to the cloud. Simple as that!
+Short version: this box talks to local sensors, turns their JSON into CSV, and ships it to `oberlin.communityhub.cloud` every minute. The React dashboard sits on top and just calls the API.
 
-## What's This For?
+## What this project does
+- Polls sensors on the local network (Purple Air + Tempest today; Water Quality + Mayfly later)
+- Converts each reading to a clean CSV
+- Pushes CSVs straight to the cloud endpoint (no local storage)
+- Lets you add, turn on/off, fetch-now, and delete sensors through an API and dashboard
 
-We have sensors around campus measuring air quality and weather. This system:
-1. Connects to those sensors (they're on our local network)
-2. Grabs the data every 60 seconds
-3. Converts it to CSV
-4. Uploads it to oberlin.communityhub.cloud
+## How it fits together
+- Frontend: React dashboard (tabs per sensor type, Air Quality opens first)
+- Access path: Frontend → Cloudflare Tunnel URL → FastAPI backend on your machine
+- Backend: FastAPI + APScheduler (polls every 60s) + httpx (sensor calls) + Pydantic (validation)
+- Uploads: CSV to `https://oberlin.communityhub.cloud/api/data-hub/upload/csv` using the per-sensor token you supply
 
-## The Big Picture
-
+## Repo map (human edition)
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                                                                              │
-│    YOU (using the dashboard)                                                 │
-│       │                                                                      │
-│       │ "Add sensor 10.17.192.162"                                          │
-│       │ "Turn it on"                                                        │
-│       ▼                                                                      │
-│    ┌─────────────────────────────────────────────────────────────────────┐  │
-│    │              FRONTEND (React Dashboard)                              │  │
-│    │              Hosted on Vercel/Netlify                                │  │
-│    └─────────────────────────────────────────────────────────────────────┘  │
-│       │                                                                      │
-│       │ HTTP requests                                                       │
-│       ▼                                                                      │
-│    ┌─────────────────────────────────────────────────────────────────────┐  │
-│    │              CLOUDFLARE TUNNEL                                       │  │
-│    │              (Makes local server accessible online)                  │  │
-│    └─────────────────────────────────────────────────────────────────────┘  │
-│       │                                                                      │
-│       ▼                                                                      │
-└───────┼─────────────────────────────────────────────────────────────────────┘
-        │
-        ▼   YOUR LOCAL NETWORK
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                                                                                │
-│    ┌────────────────────────────────────────────────────────────────────────┐ │
-│    │              BACKEND (Python FastAPI)                                   │ │
-│    │              Running on your computer                                   │ │
-│    │                                                                         │ │
-│    │   Every 60 seconds:                                                    │ │
-│    │   1. Fetch JSON from sensor                                            │ │
-│    │   2. Parse the data                                                    │ │
-│    │   3. Convert to CSV                                                    │ │
-│    │   4. Upload to cloud                                                   │ │
-│    └────────────────────────────────────────────────────────────────────────┘ │
-│         │                                  │                                   │
-│         ▼                                  ▼                                   │
-│    ┌──────────────┐                 ┌──────────────┐                          │
-│    │ Purple Air   │                 │ Tempest      │                          │
-│    │ Sensor       │                 │ Weather      │                          │
-│    │              │                 │ Station      │                          │
-│    │ 10.17.192.x  │                 │ 192.168.x.x  │                          │
-│    └──────────────┘                 └──────────────┘                          │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-        │
-        │ CSV uploads
-        ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│              CLOUD                                                             │
-│              oberlin.communityhub.cloud/api/data-hub/upload/csv               │
-└───────────────────────────────────────────────────────────────────────────────┘
+backend/                    Python FastAPI app
+  app/
+    main.py                 Starts the API and scheduler
+    models/sensor.py        Pydantic models for sensors and readings
+    services/
+      sensor_manager.py     In-memory sensor registry + polling jobs
+      purple_air_service.py Fetch/CSV/upload for Purple Air
+      tempest_service.py    Fetch/CSV/upload for Tempest
+    routers/sensors.py      All API routes for sensors
+  requirements.txt          Python deps
+
+frontend/                   React dashboard (already built)
+  src/App.tsx               UI with tabs (Air/Weather/Water/Mayfly)
+  src/api.ts                API client
+  src/types.ts              Shared types
+  src/index.css             White/light theme
+  FRONTEND_REQUIREMENTS.md  Friendly handoff for the frontend dev
 ```
 
-## Project Structure - What Each File Does
+## Supported sensors
+- Purple Air: working (poll + upload)
+- Tempest: working (poll + upload)
+- Water Quality: coming soon
+- Mayfly: coming soon
 
-```
-sensor-data-collector/
-│
-├── README.md                   ← You're reading this!
-│
-├── backend/                    ← The Python server (DONE ✅)
-│   │
-│   ├── requirements.txt        ← Python packages we need
-│   │
-│   ├── app/
-│   │   ├── __init__.py        ← Just marks this as a Python package
-│   │   │
-│   │   ├── main.py            ← THE MAIN FILE
-│   │   │                         Creates the server, starts everything up
-│   │   │
-│   │   ├── models/            ← DATA STRUCTURES
-│   │   │   ├── __init__.py
-│   │   │   └── sensor.py      ← Defines what a "sensor" looks like
-│   │   │                         What fields it has, how to validate data
-│   │   │
-│   │   ├── services/          ← THE WORKERS (do the actual work)
-│   │   │   ├── __init__.py
-│   │   │   ├── purple_air_service.py  ← Talks to Purple Air sensors
-│   │   │   │                             Fetches data, converts to CSV
-│   │   │   ├── tempest_service.py     ← Talks to Tempest weather stations
-│   │   │   └── sensor_manager.py      ← THE BOSS
-│   │   │                                 Manages all sensors, schedules polling
-│   │   │
-│   │   └── routers/           ← API ENDPOINTS (the doors into our app)
-│   │       ├── __init__.py
-│   │       └── sensors.py     ← All the /api/sensors/* endpoints
-│   │                            Add, delete, turn on/off, etc.
-│   │
-│   └── .gitignore             ← Files Git should ignore
-│
-└── frontend/                   ← The React dashboard (TO BE BUILT)
-    └── FRONTEND_REQUIREMENTS.md  ← Instructions for building the frontend
-```
-
-## Supported Sensors
-
-| Sensor | Status | What It Measures |
-|--------|--------|------------------|
-| **Purple Air** | ✅ Working | PM1.0, PM2.5, PM10, Temperature, Humidity, Pressure, AQI |
-| **Tempest** | ✅ Working | Temperature, Humidity, Wind, Rain, UV, Solar Radiation, Lightning |
-| **Water Quality** | 🚧 Coming | TBD |
-| **Mayfly** | 🚧 Coming | TBD |
-
-## Quick Start
-
-### 1. Set Up the Backend
-
+## Setup in 5 minutes (backend)
 ```bash
 cd backend
-
-# Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install packages
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Run the server
 uvicorn app.main:app --reload --port 8000
 ```
+Check it: open http://localhost:8000/docs
 
-### 2. Add a Sensor
-
+## Add a sensor (examples)
+Purple Air:
 ```bash
 curl -X POST http://localhost:8000/api/sensors/purple-air \
   -H "Content-Type: application/json" \
@@ -144,103 +60,72 @@ curl -X POST http://localhost:8000/api/sensors/purple-air \
     "ip_address": "10.17.192.162",
     "name": "Lab Sensor",
     "location": "Science Building",
-    "upload_token": "your-token-from-oberlin-communityhub"
+    "upload_token": "your-cloud-token"
+  }'
+```
+Tempest:
+```bash
+curl -X POST http://localhost:8000/api/sensors/tempest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip_address": "192.168.1.150",
+    "name": "Campus Weather",
+    "location": "Rooftop",
+    "device_id": "12345",
+    "upload_token": "your-cloud-token"
   }'
 ```
 
-### 3. Turn It On
+## Daily use
+- Turn on: `POST /api/sensors/{id}/turn-on` (starts 60s polling + uploads)
+- Turn off: `POST /api/sensors/{id}/turn-off` (stops polling)
+- Fetch now: `POST /api/sensors/{id}/fetch-now` (one-shot pull + upload, good for testing)
+- Status: `GET /api/sensors/{id}/status`
+- List: `GET /api/sensors/`
+- Delete: `DELETE /api/sensors/{id}`
+- Health: `GET /health`
 
-```bash
-# Use the ID from the previous response
-curl -X POST http://localhost:8000/api/sensors/{sensor-id}/turn-on
+## CSV shape (what we upload)
+Purple Air (example):
+```
+Timestamp,Temperature (F),Humidity (%),Dewpoint (F),Pressure (hPa),PM1.0,PM2.5,PM10,AQI
+2026-01-06T03:00:00Z,72,45,52,1013,5.2,12.4,18.7,52
+```
+Tempest (example):
+```
+Timestamp,Temperature (F),Humidity (%),Pressure (mb),Wind Speed (mph),Wind Gust (mph),Wind Dir (deg),Rain (in),UV,Solar (W/m2),Lightning
+2026-01-06T03:00:00Z,72,45,1013,5.2,8.1,180,0.0,3.5,450,0
 ```
 
-### 4. Watch the Data Flow! 🎉
-
-The sensor will now fetch data every 60 seconds and upload it to the cloud.
-
-## API Reference
-
-| What You Want | How To Do It |
-|--------------|--------------|
-| Add Purple Air sensor | `POST /api/sensors/purple-air` |
-| Add Tempest sensor | `POST /api/sensors/tempest` |
-| List all sensors | `GET /api/sensors/` |
-| Get one sensor | `GET /api/sensors/{id}` |
-| Turn on (start collecting) | `POST /api/sensors/{id}/turn-on` |
-| Turn off (stop collecting) | `POST /api/sensors/{id}/turn-off` |
-| Manual fetch (test) | `POST /api/sensors/{id}/fetch-now` |
-| Get status | `GET /api/sensors/{id}/status` |
-| Delete sensor | `DELETE /api/sensors/{id}` |
-| Health check | `GET /health` |
-
-## Adding a Sensor - What You Need
-
-### Purple Air
-```json
-{
-  "ip_address": "10.17.192.162",
-  "name": "Lab Sensor",
-  "location": "Science Building Room 201",
-  "upload_token": "your-token"
-}
-```
-
-### Tempest
-```json
-{
-  "ip_address": "192.168.1.150",
-  "name": "Campus Weather",
-  "location": "Rooftop",
-  "device_id": "12345",
-  "upload_token": "your-token"
-}
-```
-
-## For Remote Access (Frontend on Another Server)
-
-The frontend might be hosted on Vercel while the backend runs on campus. 
-Use Cloudflare Tunnel to make the backend accessible:
-
-```bash
-# Install cloudflared
-brew install cloudflared  # macOS
-
-# Create a tunnel
-cloudflared tunnel --url http://localhost:8000
-```
-
-This gives you a URL like `https://random-words.trycloudflare.com` that the frontend can use.
-
-## Environment Variables
-
-Create a `.env` file in the `backend/` folder:
-
+## Environment
+Create `backend/.env` (keys shown with sensible defaults):
 ```
 POLLING_INTERVAL=60
 FRONTEND_URL=https://your-frontend.vercel.app
 ```
 
-## CSV Data Format
+## If the frontend is remote
+- Run backend locally as usual.
+- Expose it with Cloudflare Tunnel:
+  ```bash
+  cloudflared tunnel --url http://localhost:8000
+  ```
+- Use the tunnel URL in the frontend `VITE_API_URL`.
 
-### Purple Air
-```csv
-Timestamp,Temperature (°F),Humidity (%),Dewpoint (°F),Pressure (hPa),PM1.0,PM2.5,PM10,AQI
-2026-01-06T03:00:00+00:00,72,45,52,1013,5.2,12.4,18.7,52
-```
+## Troubleshooting (fast checks)
+- Backend up? `curl http://localhost:8000/health`
+- Sensor reachable? `curl http://<sensor-ip>/json`
+- Upload token correct? If uploads fail, confirm the token in the sensor config.
+- Interval stuck? Turn off then on: `POST /api/sensors/{id}/turn-off` then `turn-on`.
 
-### Tempest
-```csv
-Timestamp,Temperature (°F),Humidity (%),Pressure (mb),Wind Speed (mph),Wind Gust (mph),Wind Dir (°),Rain (in),UV,Solar (W/m²),Lightning
-2026-01-06T03:00:00+00:00,72,45,1013,5.2,8.1,180,0.0,3.5,450,0
-```
+## Where to look in code
+- API layer: `backend/app/routers/sensors.py`
+- Orchestration + scheduler: `backend/app/services/sensor_manager.py`
+- Device-specific logic: `backend/app/services/purple_air_service.py`, `.../tempest_service.py`
+- Models: `backend/app/models/sensor.py`
 
-## Need Help?
+## Frontend handoff
+See `frontend/FRONTEND_REQUIREMENTS.md` for the friendly playbook (API calls, expected UI, and testing checklist).
 
-1. **API Docs**: Open http://localhost:8000/docs after starting the server
-2. **Check the code**: Every file has detailed comments explaining what it does
-3. **Frontend instructions**: See `frontend/FRONTEND_REQUIREMENTS.md`
-
-## Authors
-
+## Credits
 - Frank Kusi Appiah
