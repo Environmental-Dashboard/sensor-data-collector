@@ -1,85 +1,47 @@
 """
 Models Package
 ==============
-All Pydantic models for the Sensor Data Collector.
+
+This is where all our data models live.
+Import from here instead of the individual files.
+
+Example:
+    from app.models import SensorType, AddPurpleAirSensorRequest
 """
 
 from .sensor import (
-    # Enums
+    # What kind of sensors and their status
     SensorType,
     SensorStatus,
-    # Request Models
+    
+    # What the frontend sends us when adding sensors
     AddPurpleAirSensorRequest,
     AddTempestSensorRequest,
     AddWaterQualitySensorRequest,
     AddMayflySensorRequest,
     UpdateSensorRequest,
-    # Response Models
+    
+    # What we send back to the frontend
     SensorResponse,
     SensorListResponse,
     FetchResultResponse,
-    # Data Models
+    
+    # The actual data from sensors
     PurpleAirReading,
     TempestReading,
 )
 
 __all__ = [
-    # Enums
     "SensorType",
     "SensorStatus",
-    # Request Models
     "AddPurpleAirSensorRequest",
     "AddTempestSensorRequest",
     "AddWaterQualitySensorRequest",
     "AddMayflySensorRequest",
     "UpdateSensorRequest",
-    # Response Models
     "SensorResponse",
     "SensorListResponse",
     "FetchResultResponse",
-    # Data Models
-    "PurpleAirReading",
-    "TempestReading",
-]
-
-==============
-All Pydantic models for the Sensor Data Collector.
-"""
-
-from .sensor import (
-    # Enums
-    SensorType,
-    SensorStatus,
-    # Request Models
-    AddPurpleAirSensorRequest,
-    AddTempestSensorRequest,
-    AddWaterQualitySensorRequest,
-    AddMayflySensorRequest,
-    UpdateSensorRequest,
-    # Response Models
-    SensorResponse,
-    SensorListResponse,
-    FetchResultResponse,
-    # Data Models
-    PurpleAirReading,
-    TempestReading,
-)
-
-__all__ = [
-    # Enums
-    "SensorType",
-    "SensorStatus",
-    # Request Models
-    "AddPurpleAirSensorRequest",
-    "AddTempestSensorRequest",
-    "AddWaterQualitySensorRequest",
-    "AddMayflySensorRequest",
-    "UpdateSensorRequest",
-    # Response Models
-    "SensorResponse",
-    "SensorListResponse",
-    "FetchResultResponse",
-    # Data Models
     "PurpleAirReading",
     "TempestReading",
 ]

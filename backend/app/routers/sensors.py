@@ -1,33 +1,49 @@
 """
 Sensors API Router
 ==================
-REST API endpoints for sensor management.
 
-This module provides the HTTP API for all sensor operations.
-All endpoints follow REST conventions and return JSON responses.
+Yo! This is where all the API endpoints live.
 
-ENDPOINTS OVERVIEW:
-    GET    /api/sensors                    - List all sensors
-    GET    /api/sensors/{id}               - Get single sensor
-    DELETE /api/sensors/{id}               - Delete sensor
-    GET    /api/sensors/{id}/status        - Get sensor status
-    POST   /api/sensors/{id}/turn-on       - Start data collection
-    POST   /api/sensors/{id}/turn-off      - Stop data collection
-    POST   /api/sensors/{id}/fetch-now     - Manual data fetch
-    
-    POST   /api/sensors/purple-air         - Add Purple Air sensor
-    GET    /api/sensors/purple-air         - List Purple Air sensors
-    
-    POST   /api/sensors/tempest            - Add Tempest sensor
-    GET    /api/sensors/tempest            - List Tempest sensors
-    
-    POST   /api/sensors/water-quality      - Add Water Quality sensor (TBD)
-    GET    /api/sensors/water-quality      - List Water Quality sensors
-    
-    POST   /api/sensors/mayfly             - Add Mayfly sensor (TBD)
-    GET    /api/sensors/mayfly             - List Mayfly sensors
+WHAT'S AN ENDPOINT?
+------------------
+An endpoint is like a door into our app. When the frontend wants to do something
+(like add a sensor), it knocks on a specific door (endpoint).
 
-Author: Sensor Data Collector Team
+For example:
+- POST /api/sensors/purple-air = "I want to add a Purple Air sensor"
+- GET /api/sensors = "Show me all sensors"
+- POST /api/sensors/{id}/turn-on = "Start collecting data from this sensor"
+
+HOW IT WORKS:
+------------
+1. Frontend sends an HTTP request (GET, POST, DELETE)
+2. FastAPI routes it to the right function here
+3. We call the SensorManager to do the work
+4. We send back a response (usually JSON)
+
+ALL ENDPOINTS:
+-------------
+GET    /api/sensors/              - List all sensors
+GET    /api/sensors/{id}          - Get one sensor
+DELETE /api/sensors/{id}          - Delete a sensor
+GET    /api/sensors/{id}/status   - Get sensor status
+POST   /api/sensors/{id}/turn-on  - Start collecting data
+POST   /api/sensors/{id}/turn-off - Stop collecting data
+POST   /api/sensors/{id}/fetch-now - Manually fetch data right now
+
+POST   /api/sensors/purple-air    - Add a Purple Air sensor
+GET    /api/sensors/purple-air    - List Purple Air sensors
+
+POST   /api/sensors/tempest       - Add a Tempest sensor
+GET    /api/sensors/tempest       - List Tempest sensors
+
+POST   /api/sensors/water-quality - Add Water Quality sensor (coming soon)
+GET    /api/sensors/water-quality - List Water Quality sensors
+
+POST   /api/sensors/mayfly        - Add Mayfly datalogger (coming soon)
+GET    /api/sensors/mayfly        - List Mayfly dataloggers
+
+Author: Frank Kusi Appiah
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -44,26 +60,23 @@ from app.models import (
 )
 
 
+# Create the router - this groups all our sensor endpoints together
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 
 
 # =============================================================================
 # DEPENDENCY INJECTION
 # =============================================================================
+# This is a fancy way of saying "give the endpoints access to the SensorManager"
 
-# Global reference to sensor manager (set by main.py)
-_sensor_manager = None
+_sensor_manager = None  # This gets set when the app starts
 
 
 def set_sensor_manager(manager):
     """
-    Set the global sensor manager instance.
+    Called when the app starts to give us the sensor manager.
     
-    Called from main.py during application startup to inject
-    the sensor manager into the router.
-    
-    Args:
-        manager: Initialized SensorManager instance
+    Think of this like: "Hey router, here's your manager to work with"
     """
     global _sensor_manager
     _sensor_manager = manager
@@ -71,61 +84,40 @@ def set_sensor_manager(manager):
 
 def get_sensor_manager():
     """
-    Dependency to get the sensor manager.
+    Get the sensor manager for use in endpoints.
     
-    Used in route handlers to access the sensor manager.
-    
-    Returns:
-        SensorManager instance
-        
-    Raises:
-        HTTPException: If manager not initialized
+    Every endpoint function that needs the manager uses this.
     """
     if _sensor_manager is None:
-        raise HTTPException(
-            status_code=500, 
-            detail="Sensor manager not initialized"
-        )
+        raise HTTPException(status_code=500, detail="Server not fully started yet")
     return _sensor_manager
 
 
 # =============================================================================
-# PURPLE AIR SENSOR ENDPOINTS
+# PURPLE AIR ENDPOINTS
 # =============================================================================
 
-@router.post(
-    "/purple-air", 
-    response_model=SensorResponse,
-    summary="Add Purple Air Sensor",
-    description="""
-    Register a new Purple Air sensor for data collection.
-    
-    Purple Air sensors are accessed via their local IP address on the same
-    network as this backend server. They expose a JSON endpoint at http://<ip>/json
-    
-    **Required Fields:**
-    - `ip_address`: Local network IP (e.g., "192.168.1.100")
-    - `name`: Human-readable name (e.g., "Lab Room Sensor")
-    - `location`: Physical location (e.g., "Science Building Room 201")
-    
-    **After Adding:**
-    - Sensor starts in INACTIVE state
-    - Call `/api/sensors/{id}/turn-on` to start data collection
-    - Data will be fetched every 60 seconds and pushed to the external endpoint
-    """
-)
+@router.post("/purple-air", response_model=SensorResponse)
 async def add_purple_air_sensor(
     request: AddPurpleAirSensorRequest,
     manager = Depends(get_sensor_manager)
 ):
-    """Add a new Purple Air sensor."""
-    # Validate IP format
+    """
+    Add a new Purple Air sensor.
+    
+    Send us:
+    - ip_address: The sensor's IP on your network (like "10.17.192.162")
+    - name: What you want to call it (like "Lab Sensor")
+    - location: Where it is (like "Science Building Room 201")
+    - upload_token: Your token from oberlin.communityhub.cloud
+    
+    We'll give you back the sensor with its new ID.
+    Then call /turn-on to start collecting data!
+    """
+    # Check if the IP looks valid
     parts = request.ip_address.split(".")
     if len(parts) != 4:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid IP address format. Expected: xxx.xxx.xxx.xxx"
-        )
+        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address. Should be like: 192.168.1.100")
     
     for part in parts:
         try:
@@ -133,111 +125,81 @@ async def add_purple_air_sensor(
             if num < 0 or num > 255:
                 raise ValueError()
         except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid IP address. Each octet must be 0-255"
-            )
+            raise HTTPException(status_code=400, detail="Each part of the IP should be a number from 0-255")
     
-    # Check for duplicate IP
+    # Check if we already have a sensor with this IP
     existing_sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
     for sensor in existing_sensors:
         if sensor.ip_address == request.ip_address:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Sensor with IP {request.ip_address} already exists"
-            )
+            raise HTTPException(status_code=400, detail=f"You already have a sensor at {request.ip_address}!")
     
+    # Add it!
     return manager.add_purple_air_sensor(request)
 
 
-@router.get(
-    "/purple-air", 
-    response_model=SensorListResponse,
-    summary="List Purple Air Sensors",
-    description="Get all registered Purple Air sensors with their current status."
-)
+@router.get("/purple-air", response_model=SensorListResponse)
 async def get_all_purple_air_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Purple Air sensors."""
+    """
+    Get all Purple Air sensors.
+    
+    Returns a list of all your Purple Air sensors with their current status.
+    """
     sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
     return SensorListResponse(sensors=sensors, total=len(sensors))
 
 
 # =============================================================================
-# TEMPEST WEATHER SENSOR ENDPOINTS
+# TEMPEST ENDPOINTS
 # =============================================================================
 
-@router.post(
-    "/tempest", 
-    response_model=SensorResponse,
-    summary="Add Tempest Weather Station",
-    description="""
-    Register a new WeatherFlow Tempest weather station.
-    
-    Tempest sensors are accessed via the Tempest Hub on the local network.
-    They provide comprehensive weather data including temperature, humidity,
-    wind, rain, UV, solar radiation, and lightning detection.
-    
-    **Required Fields:**
-    - `ip_address`: IP of the Tempest Hub on local network
-    - `name`: Human-readable name
-    - `location`: Physical location
-    - `device_id`: Tempest device ID (from WeatherFlow app)
-    """
-)
+@router.post("/tempest", response_model=SensorResponse)
 async def add_tempest_sensor(
     request: AddTempestSensorRequest,
     manager = Depends(get_sensor_manager)
 ):
-    """Add a new Tempest weather station."""
-    # Validate IP format
+    """
+    Add a Tempest weather station.
+    
+    Send us:
+    - ip_address: The Tempest Hub's IP
+    - name: What you want to call it
+    - location: Where it is
+    - device_id: The Tempest device ID (find this in the WeatherFlow app)
+    - upload_token: Your cloud token
+    """
+    # Basic IP validation
     parts = request.ip_address.split(".")
     if len(parts) != 4:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid IP address format"
-        )
+        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address")
     
     return manager.add_tempest_sensor(request)
 
 
-@router.get(
-    "/tempest", 
-    response_model=SensorListResponse,
-    summary="List Tempest Sensors",
-    description="Get all registered Tempest weather stations."
-)
+@router.get("/tempest", response_model=SensorListResponse)
 async def get_all_tempest_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Tempest sensors."""
+    """Get all Tempest weather stations."""
     sensors = manager.get_all_sensors(SensorType.TEMPEST)
     return SensorListResponse(sensors=sensors, total=len(sensors))
 
 
 # =============================================================================
-# WATER QUALITY SENSOR ENDPOINTS (Placeholder)
+# WATER QUALITY ENDPOINTS (Coming Soon!)
 # =============================================================================
 
-@router.post(
-    "/water-quality", 
-    response_model=SensorResponse,
-    summary="Add Water Quality Sensor",
-    description="**NOT YET IMPLEMENTED** - Placeholder for Water Quality sensors."
-)
+@router.post("/water-quality", response_model=SensorResponse)
 async def add_water_quality_sensor(
     request: AddWaterQualitySensorRequest,
     manager = Depends(get_sensor_manager)
 ):
-    """Add a new Water Quality sensor."""
-    raise HTTPException(
-        status_code=501, 
-        detail="Water Quality sensors not yet implemented"
-    )
+    """
+    Add a Water Quality sensor.
+    
+    Sorry, this isn't ready yet! We're still working on it.
+    """
+    raise HTTPException(status_code=501, detail="Water Quality sensors aren't ready yet. Coming soon!")
 
 
-@router.get(
-    "/water-quality", 
-    response_model=SensorListResponse,
-    summary="List Water Quality Sensors"
-)
+@router.get("/water-quality", response_model=SensorListResponse)
 async def get_all_water_quality_sensors(manager = Depends(get_sensor_manager)):
     """Get all Water Quality sensors."""
     sensors = manager.get_all_sensors(SensorType.WATER_QUALITY)
@@ -245,31 +207,23 @@ async def get_all_water_quality_sensors(manager = Depends(get_sensor_manager)):
 
 
 # =============================================================================
-# MAYFLY DATALOGGER ENDPOINTS (Placeholder)
+# MAYFLY ENDPOINTS (Coming Soon!)
 # =============================================================================
 
-@router.post(
-    "/mayfly", 
-    response_model=SensorResponse,
-    summary="Add Mayfly Datalogger",
-    description="**NOT YET IMPLEMENTED** - Placeholder for Mayfly dataloggers."
-)
+@router.post("/mayfly", response_model=SensorResponse)
 async def add_mayfly_sensor(
     request: AddMayflySensorRequest,
     manager = Depends(get_sensor_manager)
 ):
-    """Add a new Mayfly datalogger."""
-    raise HTTPException(
-        status_code=501, 
-        detail="Mayfly dataloggers not yet implemented"
-    )
+    """
+    Add a Mayfly datalogger.
+    
+    Sorry, this isn't ready yet! We're still working on it.
+    """
+    raise HTTPException(status_code=501, detail="Mayfly dataloggers aren't ready yet. Coming soon!")
 
 
-@router.get(
-    "/mayfly", 
-    response_model=SensorListResponse,
-    summary="List Mayfly Dataloggers"
-)
+@router.get("/mayfly", response_model=SensorListResponse)
 async def get_all_mayfly_sensors(manager = Depends(get_sensor_manager)):
     """Get all Mayfly dataloggers."""
     sensors = manager.get_all_sensors(SensorType.MAYFLY)
@@ -277,574 +231,112 @@ async def get_all_mayfly_sensors(manager = Depends(get_sensor_manager)):
 
 
 # =============================================================================
-# GENERIC SENSOR ENDPOINTS
+# GENERAL SENSOR ENDPOINTS (Work for any sensor type)
 # =============================================================================
 
-@router.get(
-    "/", 
-    response_model=SensorListResponse,
-    summary="List All Sensors",
-    description="""
-    Get all sensors, optionally filtered by type.
-    
-    **Query Parameters:**
-    - `sensor_type`: Filter by type (purple_air, tempest, water_quality, mayfly)
-    """
-)
+@router.get("/", response_model=SensorListResponse)
 async def get_all_sensors(
     sensor_type: Optional[SensorType] = None,
     manager = Depends(get_sensor_manager)
 ):
-    """Get all sensors with optional type filter."""
+    """
+    Get all sensors.
+    
+    You can filter by type:
+    - /api/sensors/?sensor_type=purple_air
+    - /api/sensors/?sensor_type=tempest
+    
+    Or just get everything:
+    - /api/sensors/
+    """
     sensors = manager.get_all_sensors(sensor_type)
     return SensorListResponse(sensors=sensors, total=len(sensors))
 
 
-@router.get(
-    "/{sensor_id}", 
-    response_model=SensorResponse,
-    summary="Get Sensor",
-    description="Get a specific sensor by its ID."
-)
+@router.get("/{sensor_id}", response_model=SensorResponse)
 async def get_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Get a single sensor by ID."""
+    """
+    Get a specific sensor by its ID.
+    
+    The ID is the UUID you got when you added the sensor.
+    """
     sensor = manager.get_sensor(sensor_id)
     if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+        raise HTTPException(status_code=404, detail="Sensor not found. Is the ID correct?")
     return sensor
 
 
-@router.delete(
-    "/{sensor_id}",
-    summary="Delete Sensor",
-    description="""
+@router.delete("/{sensor_id}")
+async def delete_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
+    """
     Delete a sensor.
     
-    This will:
-    - Stop any active data collection for this sensor
-    - Remove the sensor from the registry
-    - The sensor cannot be recovered after deletion
+    This stops data collection and removes the sensor completely.
+    There's no undo! Make sure you want to do this.
     """
-)
-async def delete_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Delete a sensor."""
     success = manager.delete_sensor(sensor_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    return {"status": "deleted", "sensor_id": sensor_id}
+        raise HTTPException(status_code=404, detail="Sensor not found. Is the ID correct?")
+    return {"status": "deleted", "sensor_id": sensor_id, "message": "Sensor has been removed"}
 
 
-@router.get(
-    "/{sensor_id}/status",
-    summary="Get Sensor Status",
-    description="""
-    Get detailed status information for a sensor.
-    
-    Returns:
-    - `status`: Current status (active, inactive, error, offline)
-    - `is_active`: Whether data collection is enabled
-    - `last_active`: Timestamp of last successful data fetch
-    - `last_error`: Error message from last failed fetch (if any)
-    """
-)
+@router.get("/{sensor_id}/status")
 async def get_sensor_status(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Get sensor status details."""
+    """
+    Get the current status of a sensor.
+    
+    This tells you:
+    - Is it active? (collecting data)
+    - When did it last successfully collect data?
+    - Is there an error?
+    """
     status = manager.get_sensor_status(sensor_id)
     if not status:
         raise HTTPException(status_code=404, detail="Sensor not found")
     return status
 
 
-@router.post(
-    "/{sensor_id}/turn-on", 
-    response_model=SensorResponse,
-    summary="Turn On Sensor",
-    description="""
-    Start data collection for a sensor.
-    
-    This creates a scheduled job that:
-    - Runs every 60 seconds (configurable)
-    - Fetches data from the sensor via its local IP
-    - Converts the data to CSV format
-    - Pushes the CSV to the external endpoint
-    
-    The sensor status will be updated to ACTIVE.
-    """
-)
+@router.post("/{sensor_id}/turn-on", response_model=SensorResponse)
 async def turn_on_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Turn on data collection."""
+    """
+    Turn on a sensor - start collecting data!
+    
+    This starts the automatic polling:
+    - Every 60 seconds, we fetch data from the sensor
+    - Convert it to CSV
+    - Upload it to the cloud
+    
+    The sensor status will change to "active".
+    """
     sensor = await manager.turn_on_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
     return sensor
 
 
-@router.post(
-    "/{sensor_id}/turn-off", 
-    response_model=SensorResponse,
-    summary="Turn Off Sensor",
-    description="""
-    Stop data collection for a sensor.
-    
-    This stops the scheduled polling job. The sensor remains registered
-    and can be turned on again later.
-    
-    The sensor status will be updated to INACTIVE.
-    """
-)
+@router.post("/{sensor_id}/turn-off", response_model=SensorResponse)
 async def turn_off_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Turn off data collection."""
+    """
+    Turn off a sensor - stop collecting data.
+    
+    The sensor stays registered, we just stop polling.
+    You can turn it back on later!
+    """
     sensor = manager.turn_off_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
     return sensor
 
 
-@router.post(
-    "/{sensor_id}/fetch-now",
-    summary="Fetch Data Now",
-    description="""
-    Manually trigger a data fetch for a sensor.
-    
-    Useful for testing without waiting for the scheduled interval.
-    
-    Returns:
-    - `status`: "success" or "error"
-    - `reading`: The fetched data (if successful)
-    - `upload_result`: Upload confirmation (if successful)
-    - `error_message`: Error details (if failed)
-    
-    **Note:** The sensor does not need to be "on" to use this endpoint.
-    """
-)
+@router.post("/{sensor_id}/fetch-now")
 async def trigger_fetch_now(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Manually trigger data fetch."""
-    result = await manager.trigger_fetch_now(sensor_id)
-    
-    if result.get("status") == "error" and "not found" in result.get("error_message", "").lower():
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    
-    return result
-
-"""==================
-REST API endpoints for sensor management.
-
-This module provides the HTTP API for all sensor operations.
-All endpoints follow REST conventions and return JSON responses.
-
-ENDPOINTS OVERVIEW:
-    GET    /api/sensors                    - List all sensors
-    GET    /api/sensors/{id}               - Get single sensor
-    DELETE /api/sensors/{id}               - Delete sensor
-    GET    /api/sensors/{id}/status        - Get sensor status
-    POST   /api/sensors/{id}/turn-on       - Start data collection
-    POST   /api/sensors/{id}/turn-off      - Stop data collection
-    POST   /api/sensors/{id}/fetch-now     - Manual data fetch
-    
-    POST   /api/sensors/purple-air         - Add Purple Air sensor
-    GET    /api/sensors/purple-air         - List Purple Air sensors
-    
-    POST   /api/sensors/tempest            - Add Tempest sensor
-    GET    /api/sensors/tempest            - List Tempest sensors
-    
-    POST   /api/sensors/water-quality      - Add Water Quality sensor (TBD)
-    GET    /api/sensors/water-quality      - List Water Quality sensors
-    
-    POST   /api/sensors/mayfly             - Add Mayfly sensor (TBD)
-    GET    /api/sensors/mayfly             - List Mayfly sensors
-
-Author: Sensor Data Collector Team
-"""
-
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional
-
-from app.models import (
-    SensorType,
-    AddPurpleAirSensorRequest,
-    AddTempestSensorRequest,
-    AddWaterQualitySensorRequest,
-    AddMayflySensorRequest,
-    SensorResponse,
-    SensorListResponse,
-)
-
-
-router = APIRouter(prefix="/api/sensors", tags=["sensors"])
-
-
-# =============================================================================
-# DEPENDENCY INJECTION
-# =============================================================================
-
-# Global reference to sensor manager (set by main.py)
-_sensor_manager = None
-
-
-def set_sensor_manager(manager):
     """
-    Set the global sensor manager instance.
+    Manually fetch data RIGHT NOW.
     
-    Called from main.py during application startup to inject
-    the sensor manager into the router.
+    Great for testing! You don't have to wait for the 60-second timer.
     
-    Args:
-        manager: Initialized SensorManager instance
+    Returns the actual data if successful, or an error message if not.
     """
-    global _sensor_manager
-    _sensor_manager = manager
-
-
-def get_sensor_manager():
-    """
-    Dependency to get the sensor manager.
-    
-    Used in route handlers to access the sensor manager.
-    
-    Returns:
-        SensorManager instance
-        
-    Raises:
-        HTTPException: If manager not initialized
-    """
-    if _sensor_manager is None:
-        raise HTTPException(
-            status_code=500, 
-            detail="Sensor manager not initialized"
-        )
-    return _sensor_manager
-
-
-# =============================================================================
-# PURPLE AIR SENSOR ENDPOINTS
-# =============================================================================
-
-@router.post(
-    "/purple-air", 
-    response_model=SensorResponse,
-    summary="Add Purple Air Sensor",
-    description="""
-    Register a new Purple Air sensor for data collection.
-    
-    Purple Air sensors are accessed via their local IP address on the same
-    network as this backend server. They expose a JSON endpoint at http://<ip>/json
-    
-    **Required Fields:**
-    - `ip_address`: Local network IP (e.g., "192.168.1.100")
-    - `name`: Human-readable name (e.g., "Lab Room Sensor")
-    - `location`: Physical location (e.g., "Science Building Room 201")
-    
-    **After Adding:**
-    - Sensor starts in INACTIVE state
-    - Call `/api/sensors/{id}/turn-on` to start data collection
-    - Data will be fetched every 60 seconds and pushed to the external endpoint
-    """
-)
-async def add_purple_air_sensor(
-    request: AddPurpleAirSensorRequest,
-    manager = Depends(get_sensor_manager)
-):
-    """Add a new Purple Air sensor."""
-    # Validate IP format
-    parts = request.ip_address.split(".")
-    if len(parts) != 4:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid IP address format. Expected: xxx.xxx.xxx.xxx"
-        )
-    
-    for part in parts:
-        try:
-            num = int(part)
-            if num < 0 or num > 255:
-                raise ValueError()
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid IP address. Each octet must be 0-255"
-            )
-    
-    # Check for duplicate IP
-    existing_sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
-    for sensor in existing_sensors:
-        if sensor.ip_address == request.ip_address:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Sensor with IP {request.ip_address} already exists"
-            )
-    
-    return manager.add_purple_air_sensor(request)
-
-
-@router.get(
-    "/purple-air", 
-    response_model=SensorListResponse,
-    summary="List Purple Air Sensors",
-    description="Get all registered Purple Air sensors with their current status."
-)
-async def get_all_purple_air_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Purple Air sensors."""
-    sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
-    return SensorListResponse(sensors=sensors, total=len(sensors))
-
-
-# =============================================================================
-# TEMPEST WEATHER SENSOR ENDPOINTS
-# =============================================================================
-
-@router.post(
-    "/tempest", 
-    response_model=SensorResponse,
-    summary="Add Tempest Weather Station",
-    description="""
-    Register a new WeatherFlow Tempest weather station.
-    
-    Tempest sensors are accessed via the Tempest Hub on the local network.
-    They provide comprehensive weather data including temperature, humidity,
-    wind, rain, UV, solar radiation, and lightning detection.
-    
-    **Required Fields:**
-    - `ip_address`: IP of the Tempest Hub on local network
-    - `name`: Human-readable name
-    - `location`: Physical location
-    - `device_id`: Tempest device ID (from WeatherFlow app)
-    """
-)
-async def add_tempest_sensor(
-    request: AddTempestSensorRequest,
-    manager = Depends(get_sensor_manager)
-):
-    """Add a new Tempest weather station."""
-    # Validate IP format
-    parts = request.ip_address.split(".")
-    if len(parts) != 4:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid IP address format"
-        )
-    
-    return manager.add_tempest_sensor(request)
-
-
-@router.get(
-    "/tempest", 
-    response_model=SensorListResponse,
-    summary="List Tempest Sensors",
-    description="Get all registered Tempest weather stations."
-)
-async def get_all_tempest_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Tempest sensors."""
-    sensors = manager.get_all_sensors(SensorType.TEMPEST)
-    return SensorListResponse(sensors=sensors, total=len(sensors))
-
-
-# =============================================================================
-# WATER QUALITY SENSOR ENDPOINTS (Placeholder)
-# =============================================================================
-
-@router.post(
-    "/water-quality", 
-    response_model=SensorResponse,
-    summary="Add Water Quality Sensor",
-    description="**NOT YET IMPLEMENTED** - Placeholder for Water Quality sensors."
-)
-async def add_water_quality_sensor(
-    request: AddWaterQualitySensorRequest,
-    manager = Depends(get_sensor_manager)
-):
-    """Add a new Water Quality sensor."""
-    raise HTTPException(
-        status_code=501, 
-        detail="Water Quality sensors not yet implemented"
-    )
-
-
-@router.get(
-    "/water-quality", 
-    response_model=SensorListResponse,
-    summary="List Water Quality Sensors"
-)
-async def get_all_water_quality_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Water Quality sensors."""
-    sensors = manager.get_all_sensors(SensorType.WATER_QUALITY)
-    return SensorListResponse(sensors=sensors, total=len(sensors))
-
-
-# =============================================================================
-# MAYFLY DATALOGGER ENDPOINTS (Placeholder)
-# =============================================================================
-
-@router.post(
-    "/mayfly", 
-    response_model=SensorResponse,
-    summary="Add Mayfly Datalogger",
-    description="**NOT YET IMPLEMENTED** - Placeholder for Mayfly dataloggers."
-)
-async def add_mayfly_sensor(
-    request: AddMayflySensorRequest,
-    manager = Depends(get_sensor_manager)
-):
-    """Add a new Mayfly datalogger."""
-    raise HTTPException(
-        status_code=501, 
-        detail="Mayfly dataloggers not yet implemented"
-    )
-
-
-@router.get(
-    "/mayfly", 
-    response_model=SensorListResponse,
-    summary="List Mayfly Dataloggers"
-)
-async def get_all_mayfly_sensors(manager = Depends(get_sensor_manager)):
-    """Get all Mayfly dataloggers."""
-    sensors = manager.get_all_sensors(SensorType.MAYFLY)
-    return SensorListResponse(sensors=sensors, total=len(sensors))
-
-
-# =============================================================================
-# GENERIC SENSOR ENDPOINTS
-# =============================================================================
-
-@router.get(
-    "/", 
-    response_model=SensorListResponse,
-    summary="List All Sensors",
-    description="""
-    Get all sensors, optionally filtered by type.
-    
-    **Query Parameters:**
-    - `sensor_type`: Filter by type (purple_air, tempest, water_quality, mayfly)
-    """
-)
-async def get_all_sensors(
-    sensor_type: Optional[SensorType] = None,
-    manager = Depends(get_sensor_manager)
-):
-    """Get all sensors with optional type filter."""
-    sensors = manager.get_all_sensors(sensor_type)
-    return SensorListResponse(sensors=sensors, total=len(sensors))
-
-
-@router.get(
-    "/{sensor_id}", 
-    response_model=SensorResponse,
-    summary="Get Sensor",
-    description="Get a specific sensor by its ID."
-)
-async def get_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Get a single sensor by ID."""
-    sensor = manager.get_sensor(sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    return sensor
-
-
-@router.delete(
-    "/{sensor_id}",
-    summary="Delete Sensor",
-    description="""
-    Delete a sensor.
-    
-    This will:
-    - Stop any active data collection for this sensor
-    - Remove the sensor from the registry
-    - The sensor cannot be recovered after deletion
-    """
-)
-async def delete_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Delete a sensor."""
-    success = manager.delete_sensor(sensor_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    return {"status": "deleted", "sensor_id": sensor_id}
-
-
-@router.get(
-    "/{sensor_id}/status",
-    summary="Get Sensor Status",
-    description="""
-    Get detailed status information for a sensor.
-    
-    Returns:
-    - `status`: Current status (active, inactive, error, offline)
-    - `is_active`: Whether data collection is enabled
-    - `last_active`: Timestamp of last successful data fetch
-    - `last_error`: Error message from last failed fetch (if any)
-    """
-)
-async def get_sensor_status(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Get sensor status details."""
-    status = manager.get_sensor_status(sensor_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    return status
-
-
-@router.post(
-    "/{sensor_id}/turn-on", 
-    response_model=SensorResponse,
-    summary="Turn On Sensor",
-    description="""
-    Start data collection for a sensor.
-    
-    This creates a scheduled job that:
-    - Runs every 60 seconds (configurable)
-    - Fetches data from the sensor via its local IP
-    - Converts the data to CSV format
-    - Pushes the CSV to the external endpoint
-    
-    The sensor status will be updated to ACTIVE.
-    """
-)
-async def turn_on_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Turn on data collection."""
-    sensor = await manager.turn_on_sensor(sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    return sensor
-
-
-@router.post(
-    "/{sensor_id}/turn-off", 
-    response_model=SensorResponse,
-    summary="Turn Off Sensor",
-    description="""
-    Stop data collection for a sensor.
-    
-    This stops the scheduled polling job. The sensor remains registered
-    and can be turned on again later.
-    
-    The sensor status will be updated to INACTIVE.
-    """
-)
-async def turn_off_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Turn off data collection."""
-    sensor = manager.turn_off_sensor(sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    return sensor
-
-
-@router.post(
-    "/{sensor_id}/fetch-now",
-    summary="Fetch Data Now",
-    description="""
-    Manually trigger a data fetch for a sensor.
-    
-    Useful for testing without waiting for the scheduled interval.
-    
-    Returns:
-    - `status`: "success" or "error"
-    - `reading`: The fetched data (if successful)
-    - `upload_result`: Upload confirmation (if successful)
-    - `error_message`: Error details (if failed)
-    
-    **Note:** The sensor does not need to be "on" to use this endpoint.
-    """
-)
-async def trigger_fetch_now(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """Manually trigger data fetch."""
     result = await manager.trigger_fetch_now(sensor_id)
     
     if result.get("status") == "error" and "not found" in result.get("error_message", "").lower():

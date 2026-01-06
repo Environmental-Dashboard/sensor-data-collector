@@ -1,18 +1,25 @@
 """
 Sensor Models
 =============
-Pydantic models for sensor data validation and serialization.
 
-This module defines all data structures used throughout the application:
-- Request models: What the frontend sends to the backend
-- Response models: What the backend returns to the frontend  
-- Internal models: Data structures for sensor readings
+Hey! This file defines all the data structures (models) used in our app.
+Think of models like templates or blueprints for data.
 
-SENSOR TYPES SUPPORTED:
-1. Purple Air - Air quality sensors (PM2.5, temperature, humidity)
-2. Water Quality - Water quality sensors (TBD - placeholder)
-3. Mayfly - Mayfly dataloggers (TBD - placeholder)
-4. Tempest - WeatherFlow Tempest weather stations
+For example, when someone adds a Purple Air sensor, they need to provide:
+- IP address (where the sensor lives on the network)
+- Name (what we call it)
+- Location (where it physically is)
+- Token (password to upload data to the cloud)
+
+This file makes sure all that data is valid before we use it.
+
+WHAT'S IN HERE:
+---------------
+1. SensorType - The types of sensors we support (purple_air, tempest, etc.)
+2. SensorStatus - Is the sensor working? (active, inactive, error, offline)
+3. Request Models - Data the frontend sends TO us
+4. Response Models - Data we send BACK to the frontend
+5. Reading Models - The actual sensor data (temperature, humidity, etc.)
 
 Author: Frank Kusi Appiah
 """
@@ -24,17 +31,19 @@ from enum import Enum
 
 
 # =============================================================================
-# ENUMS
+# SENSOR TYPES
 # =============================================================================
+# These are the different kinds of sensors we can work with.
+# Each one collects different data and connects differently.
 
 class SensorType(str, Enum):
     """
-    Types of sensors supported by the system.
+    What kind of sensor is this?
     
-    Each sensor type has its own:
-    - Add request fields (e.g., Purple Air needs IP address)
-    - Data parsing logic
-    - CSV output format
+    PURPLE_AIR = Air quality sensor (measures PM2.5, dust, etc.)
+    TEMPEST = Weather station (temp, wind, rain, lightning)
+    WATER_QUALITY = Water sensor (coming soon)
+    MAYFLY = Data logger (coming soon)
     """
     PURPLE_AIR = "purple_air"
     WATER_QUALITY = "water_quality"
@@ -42,15 +51,19 @@ class SensorType(str, Enum):
     TEMPEST = "tempest"
 
 
+# =============================================================================
+# SENSOR STATUS
+# =============================================================================
+# This tells us if the sensor is working or not.
+
 class SensorStatus(str, Enum):
     """
-    Current operational status of a sensor.
+    How's the sensor doing right now?
     
-    Status Flow:
-    - INACTIVE: Sensor registered but not polling
-    - ACTIVE: Sensor is polling and sending data successfully
-    - ERROR: Last poll failed (will retry on next interval)
-    - OFFLINE: Sensor unreachable for extended period
+    ACTIVE = Everything's good! Sensor is sending data.
+    INACTIVE = Sensor is registered but we're not collecting data (turned off).
+    ERROR = Something went wrong on the last attempt.
+    OFFLINE = Can't reach the sensor at all.
     """
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -59,220 +72,243 @@ class SensorStatus(str, Enum):
 
 
 # =============================================================================
-# REQUEST MODELS - What frontend sends to backend
+# REQUEST MODELS - What the frontend sends to us
 # =============================================================================
+# When someone clicks "Add Sensor" on the website, this is what we receive.
 
 class AddPurpleAirSensorRequest(BaseModel):
     """
-    Request body for adding a new Purple Air sensor.
+    Adding a Purple Air sensor? Send us this info!
     
-    Purple Air sensors are accessed via their LOCAL IP address on the same
-    network. They expose a JSON endpoint at http://<ip>/json
+    Example - what the frontend sends:
+    {
+        "ip_address": "192.168.1.100",
+        "name": "Lab Room Sensor",
+        "location": "Science Building Room 201",
+        "upload_token": "abc123xyz..."
+    }
     
     Fields:
-        ip_address: Local network IP (e.g., "192.168.1.100")
-        name: Human-readable identifier (e.g., "Lab Room Sensor")
-        location: Physical location description (e.g., "Science Building Room 201")
-    
-    Example Request:
-        POST /api/sensors/purple-air
-        {
-            "ip_address": "192.168.1.100",
-            "name": "Lab Room Sensor",
-            "location": "Science Building Room 201"
-        }
+        ip_address: The sensor's IP on your local network (like 192.168.1.100)
+                   You can find this in your router or the PurpleAir app.
+        
+        name: Give it a friendly name so you know which one it is.
+        
+        location: Where is it physically? Helps you remember later.
+        
+        upload_token: The password/token for uploading to the cloud endpoint.
+                     Get this from oberlin.communityhub.cloud
     """
     ip_address: str = Field(
         ..., 
         description="Local IP address of the sensor (e.g., 192.168.1.100)",
-        examples=["192.168.1.100", "10.0.0.50"]
+        examples=["192.168.1.100", "10.17.192.162"]
     )
     name: str = Field(
         ..., 
-        description="Human-readable name for the sensor",
+        description="Give it a name you'll remember",
         min_length=1,
         max_length=100,
         examples=["Lab Room Sensor", "Outdoor Air Monitor"]
     )
     location: str = Field(
         ..., 
-        description="Physical location of the sensor",
+        description="Where is this sensor located?",
         min_length=1,
         max_length=200,
         examples=["Science Building Room 201", "Main Campus Quad"]
+    )
+    upload_token: str = Field(
+        ...,
+        description="Your upload token from oberlin.communityhub.cloud",
+        min_length=1
     )
 
 
 class AddTempestSensorRequest(BaseModel):
     """
-    Request body for adding a WeatherFlow Tempest weather station.
+    Adding a Tempest weather station? Here's what we need.
     
-    Tempest sensors can be accessed via:
-    1. Local UDP broadcast (port 50222) - no internet required
-    2. WeatherFlow REST API - requires API token
-    
-    For local network access, we use the Hub's IP address.
+    Tempest is a WeatherFlow device that measures weather stuff:
+    temperature, wind, rain, UV, even lightning!
     
     Fields:
-        ip_address: IP of the Tempest Hub on local network
-        name: Human-readable identifier
-        location: Physical location description
-        device_id: Tempest device ID (found in WeatherFlow app)
-    
-    Example Request:
-        POST /api/sensors/tempest
-        {
-            "ip_address": "192.168.1.150",
-            "name": "Campus Weather Station",
-            "location": "Rooftop Observatory",
-            "device_id": "12345"
-        }
+        ip_address: IP of the Tempest Hub (the base station)
+        name: What do you want to call it?
+        location: Where is it?
+        device_id: The Tempest device ID (find this in the WeatherFlow app)
+        upload_token: Your cloud upload token
     """
-    ip_address: str = Field(
-        ..., 
-        description="IP address of Tempest Hub on local network"
-    )
-    name: str = Field(
-        ..., 
-        description="Human-readable name for the sensor",
-        min_length=1,
-        max_length=100
-    )
-    location: str = Field(
-        ..., 
-        description="Physical location of the sensor",
-        min_length=1,
-        max_length=200
-    )
-    device_id: str = Field(
-        ..., 
-        description="Tempest device ID from WeatherFlow app"
-    )
+    ip_address: str = Field(..., description="IP of the Tempest Hub")
+    name: str = Field(..., description="Friendly name", min_length=1, max_length=100)
+    location: str = Field(..., description="Physical location", min_length=1, max_length=200)
+    device_id: str = Field(..., description="Device ID from WeatherFlow app")
+    upload_token: str = Field(..., description="Your upload token")
 
 
 class AddWaterQualitySensorRequest(BaseModel):
     """
-    Request body for adding a Water Quality sensor.
+    Water Quality sensor - Coming soon!
     
-    NOTE: This is a placeholder. Specific fields will be added when
-    water quality sensor requirements are defined.
+    We haven't built this yet, but when we do, you'll add water sensors here.
     """
-    name: str = Field(..., description="Human-readable name")
-    location: str = Field(..., description="Physical location")
+    name: str = Field(..., description="Sensor name")
+    location: str = Field(..., description="Where is it?")
+    upload_token: str = Field(..., description="Your upload token")
 
 
 class AddMayflySensorRequest(BaseModel):
     """
-    Request body for adding a Mayfly datalogger.
+    Mayfly Datalogger - Coming soon!
     
-    NOTE: This is a placeholder. Specific fields will be added when
-    Mayfly datalogger requirements are defined.
+    Mayfly is a data logger for environmental monitoring.
+    We'll add support for this later.
     """
-    name: str = Field(..., description="Human-readable name")
-    location: str = Field(..., description="Physical location")
+    name: str = Field(..., description="Sensor name")
+    location: str = Field(..., description="Where is it?")
+    upload_token: str = Field(..., description="Your upload token")
 
 
 class UpdateSensorRequest(BaseModel):
     """
-    Request body for updating sensor properties.
+    Want to update a sensor's info? Send what you want to change.
     
-    All fields are optional - only provided fields will be updated.
+    You don't have to send everything - just what you want to update.
     """
-    name: Optional[str] = Field(None, description="New name for the sensor")
-    location: Optional[str] = Field(None, description="New location description")
+    name: Optional[str] = Field(None, description="New name")
+    location: Optional[str] = Field(None, description="New location")
 
 
 # =============================================================================
-# RESPONSE MODELS - What backend returns to frontend
+# RESPONSE MODELS - What we send back to the frontend
 # =============================================================================
+# After adding a sensor or asking for info, this is what you get back.
 
 class SensorResponse(BaseModel):
     """
-    Standard sensor response returned by all API endpoints.
+    This is what a sensor looks like when we send it to you.
     
-    This is the unified response format for all sensor types.
-    Frontend uses this to display sensor cards and status.
+    Every sensor you add gets all these fields:
     
-    Fields:
-        id: Unique identifier (UUID)
-        sensor_type: Type of sensor (purple_air, tempest, etc.)
-        name: Human-readable name
-        location: Physical location
-        ip_address: Network IP (if applicable)
-        device_id: Device identifier (for Tempest)
-        status: Current status (active, inactive, error, offline)
-        is_active: Whether polling is enabled
-        last_active: Timestamp of last successful data fetch
-        last_error: Error message from last failed fetch
-        created_at: When the sensor was registered
+        id: A unique ID we generate (like "550e8400-e29b-41d4-a716-446655440000")
+            You'll use this ID to turn on/off, delete, etc.
+        
+        sensor_type: What kind of sensor (purple_air, tempest, etc.)
+        
+        name: The name you gave it
+        
+        location: Where it is
+        
+        ip_address: Its network address
+        
+        device_id: For Tempest sensors, the device ID
+        
+        status: Is it working? (active, inactive, error, offline)
+        
+        is_active: true = we're collecting data, false = turned off
+        
+        last_active: When did we last successfully get data?
+        
+        last_error: If something went wrong, what was the error?
+        
+        created_at: When was this sensor added?
     """
-    id: str = Field(..., description="Unique identifier (UUID)")
+    id: str = Field(..., description="Unique sensor ID (UUID)")
     sensor_type: SensorType = Field(..., description="Type of sensor")
-    name: str = Field(..., description="Human-readable name")
+    name: str = Field(..., description="Sensor name")
     location: str = Field(..., description="Physical location")
-    ip_address: Optional[str] = Field(None, description="Network IP address")
-    device_id: Optional[str] = Field(None, description="Device ID (for Tempest)")
+    ip_address: Optional[str] = Field(None, description="Network IP")
+    device_id: Optional[str] = Field(None, description="Device ID (Tempest)")
     status: SensorStatus = Field(default=SensorStatus.INACTIVE)
-    is_active: bool = Field(default=False, description="Whether polling is enabled")
-    last_active: Optional[datetime] = Field(None, description="Last successful fetch")
+    is_active: bool = Field(default=False, description="Is polling enabled?")
+    last_active: Optional[datetime] = Field(None, description="Last successful data fetch")
     last_error: Optional[str] = Field(None, description="Last error message")
-    created_at: datetime = Field(..., description="Registration timestamp")
+    created_at: datetime = Field(..., description="When sensor was added")
 
 
 class SensorListResponse(BaseModel):
     """
-    Response containing a list of sensors.
+    When you ask for a list of sensors, you get this.
     
-    Used by endpoints that return multiple sensors.
+    Example:
+    {
+        "sensors": [...list of sensors...],
+        "total": 5
+    }
     """
     sensors: list[SensorResponse] = Field(..., description="List of sensors")
-    total: int = Field(..., description="Total count of sensors")
+    total: int = Field(..., description="How many sensors total")
 
 
 class FetchResultResponse(BaseModel):
     """
-    Response from a manual fetch operation.
+    After we fetch data from a sensor, here's what happened.
     
-    Returned when calling POST /api/sensors/{id}/fetch-now
+    If it worked:
+        status = "success"
+        reading = {temperature: 72, humidity: 45, ...}
+        uploaded_at = when we sent it to the cloud
+        
+    If it failed:
+        status = "error"
+        error_message = what went wrong
     """
     status: str = Field(..., description="'success' or 'error'")
-    sensor_name: str = Field(..., description="Name of the sensor")
+    sensor_name: str = Field(..., description="Which sensor")
     message: Optional[str] = Field(None, description="Status message")
-    error_message: Optional[str] = Field(None, description="Error details if failed")
-    data: Optional[dict] = Field(None, description="Fetched data (if successful)")
-    uploaded_at: Optional[str] = Field(None, description="Upload timestamp")
+    error_message: Optional[str] = Field(None, description="What went wrong")
+    data: Optional[dict] = Field(None, description="The data we got")
+    uploaded_at: Optional[str] = Field(None, description="When we uploaded it")
 
 
 # =============================================================================
-# PURPLE AIR DATA MODELS
+# PURPLE AIR DATA - What we get from the sensor
 # =============================================================================
+# This is the actual air quality data from a Purple Air sensor.
 
 class PurpleAirReading(BaseModel):
     """
-    Data model for a single Purple Air sensor reading.
+    One reading from a Purple Air sensor.
     
-    Purple Air sensors provide air quality data via a local JSON endpoint.
-    This model captures the key fields we need for CSV export.
+    This is the air quality data we collect every 60 seconds:
     
-    CSV Columns (in order):
-        Timestamp, Temperature (°F), Humidity (%), Dewpoint (°F),
-        Pressure (hPa), PM1.0 (µg/m³), PM2.5 (µg/m³), PM10.0 (µg/m³), PM2.5 AQI
-    
-    Data Source:
-        HTTP GET http://<sensor_ip>/json
+        timestamp: When we took this reading
+        
+        temperature_f: Temperature in Fahrenheit
+        
+        humidity_percent: How humid is it? (0-100%)
+        
+        dewpoint_f: Dewpoint temperature in Fahrenheit
+        
+        pressure_hpa: Air pressure in hectopascals
+        
+        pm1_0_cf1: Really tiny particles (PM1.0) in micrograms per cubic meter
+        
+        pm2_5_cf1: Small particles (PM2.5) - this is the main one people care about!
+                   Higher = worse air quality
+        
+        pm10_0_cf1: Bigger particles (PM10)
+        
+        pm2_5_aqi: Air Quality Index (0-500)
+                   0-50 = Good (green)
+                   51-100 = Moderate (yellow)
+                   101-150 = Unhealthy for sensitive groups (orange)
+                   151-200 = Unhealthy (red)
+                   201-300 = Very Unhealthy (purple)
+                   301+ = Hazardous (maroon)
     """
-    timestamp: datetime = Field(..., description="Reading timestamp")
-    temperature_f: float = Field(..., description="Temperature in Fahrenheit")
-    humidity_percent: float = Field(..., description="Relative humidity %")
-    dewpoint_f: float = Field(..., description="Dewpoint in Fahrenheit")
-    pressure_hpa: float = Field(..., description="Pressure in hectopascals")
-    pm1_0_cf1: float = Field(..., description="PM1.0 concentration µg/m³")
-    pm2_5_cf1: float = Field(..., description="PM2.5 concentration µg/m³")
-    pm10_0_cf1: float = Field(..., description="PM10.0 concentration µg/m³")
-    pm2_5_aqi: int = Field(..., description="PM2.5 Air Quality Index")
+    timestamp: datetime
+    temperature_f: float = Field(..., description="Temperature (Fahrenheit)")
+    humidity_percent: float = Field(..., description="Humidity (0-100%)")
+    dewpoint_f: float = Field(..., description="Dewpoint (Fahrenheit)")
+    pressure_hpa: float = Field(..., description="Pressure (hPa)")
+    pm1_0_cf1: float = Field(..., description="PM1.0 (µg/m³)")
+    pm2_5_cf1: float = Field(..., description="PM2.5 (µg/m³) - the important one!")
+    pm10_0_cf1: float = Field(..., description="PM10 (µg/m³)")
+    pm2_5_aqi: int = Field(..., description="Air Quality Index (0-500)")
 
     def to_csv_row(self) -> str:
-        """Convert reading to CSV row string."""
+        """Turn this reading into a CSV row (comma-separated values)."""
         return (
             f"{self.timestamp.isoformat()},"
             f"{self.temperature_f},"
@@ -287,7 +323,7 @@ class PurpleAirReading(BaseModel):
 
     @staticmethod
     def csv_header() -> str:
-        """Return CSV header row."""
+        """The header row for CSV files."""
         return (
             "Timestamp,Temperature (°F),Humidity (%),"
             "Dewpoint (°F),Pressure (hPa),"
@@ -297,43 +333,54 @@ class PurpleAirReading(BaseModel):
 
 
 # =============================================================================
-# TEMPEST WEATHER DATA MODELS
+# TEMPEST WEATHER DATA
 # =============================================================================
+# Weather data from a Tempest weather station.
 
 class TempestReading(BaseModel):
     """
-    Data model for a WeatherFlow Tempest weather station reading.
+    One reading from a Tempest weather station.
     
-    Tempest provides comprehensive weather data including:
-    - Temperature, humidity, pressure
-    - Wind speed and direction
-    - Rain accumulation
-    - UV index and solar radiation
-    - Lightning strike data
+    Tempest gives us tons of weather data:
     
-    CSV Columns (in order):
-        Timestamp, Temperature (°F), Humidity (%), Pressure (mb),
-        Wind Speed (mph), Wind Gust (mph), Wind Direction (°),
-        Rain (in), UV Index, Solar Radiation (W/m²), Lightning Count
-    
-    Data Source:
-        UDP broadcast on port 50222 OR
-        HTTP GET from Tempest Hub
+        timestamp: When we took this reading
+        
+        temperature_f: How hot/cold (Fahrenheit)
+        
+        humidity_percent: Humidity (0-100%)
+        
+        pressure_mb: Air pressure in millibars
+        
+        wind_speed_mph: Current wind speed (miles per hour)
+        
+        wind_gust_mph: Strongest gust recently
+        
+        wind_direction_deg: Which way is the wind coming from?
+                           0° = North, 90° = East, 180° = South, 270° = West
+        
+        rain_inches: How much rain has fallen
+        
+        uv_index: UV radiation level (higher = more sunburn risk)
+                  0-2 = Low, 3-5 = Moderate, 6-7 = High, 8-10 = Very High, 11+ = Extreme
+        
+        solar_radiation: Sunlight power in Watts per square meter
+        
+        lightning_count: Number of lightning strikes detected
     """
-    timestamp: datetime = Field(..., description="Reading timestamp")
-    temperature_f: float = Field(..., description="Temperature in Fahrenheit")
-    humidity_percent: float = Field(..., description="Relative humidity %")
-    pressure_mb: float = Field(..., description="Pressure in millibars")
-    wind_speed_mph: float = Field(..., description="Wind speed in mph")
-    wind_gust_mph: float = Field(..., description="Wind gust in mph")
-    wind_direction_deg: int = Field(..., description="Wind direction in degrees")
-    rain_inches: float = Field(..., description="Rain accumulation in inches")
-    uv_index: float = Field(..., description="UV index")
-    solar_radiation: float = Field(..., description="Solar radiation W/m²")
-    lightning_count: int = Field(..., description="Lightning strikes detected")
+    timestamp: datetime
+    temperature_f: float
+    humidity_percent: float
+    pressure_mb: float
+    wind_speed_mph: float
+    wind_gust_mph: float
+    wind_direction_deg: int
+    rain_inches: float
+    uv_index: float
+    solar_radiation: float
+    lightning_count: int
 
     def to_csv_row(self) -> str:
-        """Convert reading to CSV row string."""
+        """Turn this reading into a CSV row."""
         return (
             f"{self.timestamp.isoformat()},"
             f"{self.temperature_f},"
@@ -350,365 +397,7 @@ class TempestReading(BaseModel):
 
     @staticmethod
     def csv_header() -> str:
-        """Return CSV header row."""
-        return (
-            "Timestamp,Temperature (°F),Humidity (%),"
-            "Pressure (mb),Wind Speed (mph),Wind Gust (mph),"
-            "Wind Direction (°),Rain (in),UV Index,"
-            "Solar Radiation (W/m²),Lightning Count"
-        )
-
-"""=============
-Pydantic models for sensor data validation and serialization.
-
-This module defines all data structures used throughout the application:
-- Request models: What the frontend sends to the backend
-- Response models: What the backend returns to the frontend  
-- Internal models: Data structures for sensor readings
-
-SENSOR TYPES SUPPORTED:
-1. Purple Air - Air quality sensors (PM2.5, temperature, humidity)
-2. Water Quality - Water quality sensors (TBD - placeholder)
-3. Mayfly - Mayfly dataloggers (TBD - placeholder)
-4. Tempest - WeatherFlow Tempest weather stations
-
-Author: Frank Kusi Appiah
-"""
-
-from pydantic import BaseModel, Field
-from typing import Optional
-from datetime import datetime
-from enum import Enum
-
-
-# =============================================================================
-# ENUMS
-# =============================================================================
-
-class SensorType(str, Enum):
-    """
-    Types of sensors supported by the system.
-    
-    Each sensor type has its own:
-    - Add request fields (e.g., Purple Air needs IP address)
-    - Data parsing logic
-    - CSV output format
-    """
-    PURPLE_AIR = "purple_air"
-    WATER_QUALITY = "water_quality"
-    MAYFLY = "mayfly"
-    TEMPEST = "tempest"
-
-
-class SensorStatus(str, Enum):
-    """
-    Current operational status of a sensor.
-    
-    Status Flow:
-    - INACTIVE: Sensor registered but not polling
-    - ACTIVE: Sensor is polling and sending data successfully
-    - ERROR: Last poll failed (will retry on next interval)
-    - OFFLINE: Sensor unreachable for extended period
-    """
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    ERROR = "error"
-    OFFLINE = "offline"
-
-
-# =============================================================================
-# REQUEST MODELS - What frontend sends to backend
-# =============================================================================
-
-class AddPurpleAirSensorRequest(BaseModel):
-    """
-    Request body for adding a new Purple Air sensor.
-    
-    Purple Air sensors are accessed via their LOCAL IP address on the same
-    network. They expose a JSON endpoint at http://<ip>/json
-    
-    Fields:
-        ip_address: Local network IP (e.g., "192.168.1.100")
-        name: Human-readable identifier (e.g., "Lab Room Sensor")
-        location: Physical location description (e.g., "Science Building Room 201")
-    
-    Example Request:
-        POST /api/sensors/purple-air
-        {
-            "ip_address": "192.168.1.100",
-            "name": "Lab Room Sensor",
-            "location": "Science Building Room 201"
-        }
-    """
-    ip_address: str = Field(
-        ..., 
-        description="Local IP address of the sensor (e.g., 192.168.1.100)",
-        examples=["192.168.1.100", "10.0.0.50"]
-    )
-    name: str = Field(
-        ..., 
-        description="Human-readable name for the sensor",
-        min_length=1,
-        max_length=100,
-        examples=["Lab Room Sensor", "Outdoor Air Monitor"]
-    )
-    location: str = Field(
-        ..., 
-        description="Physical location of the sensor",
-        min_length=1,
-        max_length=200,
-        examples=["Science Building Room 201", "Main Campus Quad"]
-    )
-
-
-class AddTempestSensorRequest(BaseModel):
-    """
-    Request body for adding a WeatherFlow Tempest weather station.
-    
-    Tempest sensors can be accessed via:
-    1. Local UDP broadcast (port 50222) - no internet required
-    2. WeatherFlow REST API - requires API token
-    
-    For local network access, we use the Hub's IP address.
-    
-    Fields:
-        ip_address: IP of the Tempest Hub on local network
-        name: Human-readable identifier
-        location: Physical location description
-        device_id: Tempest device ID (found in WeatherFlow app)
-    
-    Example Request:
-        POST /api/sensors/tempest
-        {
-            "ip_address": "192.168.1.150",
-            "name": "Campus Weather Station",
-            "location": "Rooftop Observatory",
-            "device_id": "12345"
-        }
-    """
-    ip_address: str = Field(
-        ..., 
-        description="IP address of Tempest Hub on local network"
-    )
-    name: str = Field(
-        ..., 
-        description="Human-readable name for the sensor",
-        min_length=1,
-        max_length=100
-    )
-    location: str = Field(
-        ..., 
-        description="Physical location of the sensor",
-        min_length=1,
-        max_length=200
-    )
-    device_id: str = Field(
-        ..., 
-        description="Tempest device ID from WeatherFlow app"
-    )
-
-
-class AddWaterQualitySensorRequest(BaseModel):
-    """
-    Request body for adding a Water Quality sensor.
-    
-    NOTE: This is a placeholder. Specific fields will be added when
-    water quality sensor requirements are defined.
-    """
-    name: str = Field(..., description="Human-readable name")
-    location: str = Field(..., description="Physical location")
-
-
-class AddMayflySensorRequest(BaseModel):
-    """
-    Request body for adding a Mayfly datalogger.
-    
-    NOTE: This is a placeholder. Specific fields will be added when
-    Mayfly datalogger requirements are defined.
-    """
-    name: str = Field(..., description="Human-readable name")
-    location: str = Field(..., description="Physical location")
-
-
-class UpdateSensorRequest(BaseModel):
-    """
-    Request body for updating sensor properties.
-    
-    All fields are optional - only provided fields will be updated.
-    """
-    name: Optional[str] = Field(None, description="New name for the sensor")
-    location: Optional[str] = Field(None, description="New location description")
-
-
-# =============================================================================
-# RESPONSE MODELS - What backend returns to frontend
-# =============================================================================
-
-class SensorResponse(BaseModel):
-    """
-    Standard sensor response returned by all API endpoints.
-    
-    This is the unified response format for all sensor types.
-    Frontend uses this to display sensor cards and status.
-    
-    Fields:
-        id: Unique identifier (UUID)
-        sensor_type: Type of sensor (purple_air, tempest, etc.)
-        name: Human-readable name
-        location: Physical location
-        ip_address: Network IP (if applicable)
-        device_id: Device identifier (for Tempest)
-        status: Current status (active, inactive, error, offline)
-        is_active: Whether polling is enabled
-        last_active: Timestamp of last successful data fetch
-        last_error: Error message from last failed fetch
-        created_at: When the sensor was registered
-    """
-    id: str = Field(..., description="Unique identifier (UUID)")
-    sensor_type: SensorType = Field(..., description="Type of sensor")
-    name: str = Field(..., description="Human-readable name")
-    location: str = Field(..., description="Physical location")
-    ip_address: Optional[str] = Field(None, description="Network IP address")
-    device_id: Optional[str] = Field(None, description="Device ID (for Tempest)")
-    status: SensorStatus = Field(default=SensorStatus.INACTIVE)
-    is_active: bool = Field(default=False, description="Whether polling is enabled")
-    last_active: Optional[datetime] = Field(None, description="Last successful fetch")
-    last_error: Optional[str] = Field(None, description="Last error message")
-    created_at: datetime = Field(..., description="Registration timestamp")
-
-
-class SensorListResponse(BaseModel):
-    """
-    Response containing a list of sensors.
-    
-    Used by endpoints that return multiple sensors.
-    """
-    sensors: list[SensorResponse] = Field(..., description="List of sensors")
-    total: int = Field(..., description="Total count of sensors")
-
-
-class FetchResultResponse(BaseModel):
-    """
-    Response from a manual fetch operation.
-    
-    Returned when calling POST /api/sensors/{id}/fetch-now
-    """
-    status: str = Field(..., description="'success' or 'error'")
-    sensor_name: str = Field(..., description="Name of the sensor")
-    message: Optional[str] = Field(None, description="Status message")
-    error_message: Optional[str] = Field(None, description="Error details if failed")
-    data: Optional[dict] = Field(None, description="Fetched data (if successful)")
-    uploaded_at: Optional[str] = Field(None, description="Upload timestamp")
-
-
-# =============================================================================
-# PURPLE AIR DATA MODELS
-# =============================================================================
-
-class PurpleAirReading(BaseModel):
-    """
-    Data model for a single Purple Air sensor reading.
-    
-    Purple Air sensors provide air quality data via a local JSON endpoint.
-    This model captures the key fields we need for CSV export.
-    
-    CSV Columns (in order):
-        Timestamp, Temperature (°F), Humidity (%), Dewpoint (°F),
-        Pressure (hPa), PM1.0 (µg/m³), PM2.5 (µg/m³), PM10.0 (µg/m³), PM2.5 AQI
-    
-    Data Source:
-        HTTP GET http://<sensor_ip>/json
-    """
-    timestamp: datetime = Field(..., description="Reading timestamp")
-    temperature_f: float = Field(..., description="Temperature in Fahrenheit")
-    humidity_percent: float = Field(..., description="Relative humidity %")
-    dewpoint_f: float = Field(..., description="Dewpoint in Fahrenheit")
-    pressure_hpa: float = Field(..., description="Pressure in hectopascals")
-    pm1_0_cf1: float = Field(..., description="PM1.0 concentration µg/m³")
-    pm2_5_cf1: float = Field(..., description="PM2.5 concentration µg/m³")
-    pm10_0_cf1: float = Field(..., description="PM10.0 concentration µg/m³")
-    pm2_5_aqi: int = Field(..., description="PM2.5 Air Quality Index")
-
-    def to_csv_row(self) -> str:
-        """Convert reading to CSV row string."""
-        return (
-            f"{self.timestamp.isoformat()},"
-            f"{self.temperature_f},"
-            f"{self.humidity_percent},"
-            f"{self.dewpoint_f},"
-            f"{self.pressure_hpa},"
-            f"{self.pm1_0_cf1},"
-            f"{self.pm2_5_cf1},"
-            f"{self.pm10_0_cf1},"
-            f"{self.pm2_5_aqi}"
-        )
-
-    @staticmethod
-    def csv_header() -> str:
-        """Return CSV header row."""
-        return (
-            "Timestamp,Temperature (°F),Humidity (%),"
-            "Dewpoint (°F),Pressure (hPa),"
-            "PM1.0 :cf_1( µg/m³),PM2.5 :cf_1( µg/m³),"
-            "PM10.0 :cf_1( µg/m³),PM2.5 AQI"
-        )
-
-
-# =============================================================================
-# TEMPEST WEATHER DATA MODELS
-# =============================================================================
-
-class TempestReading(BaseModel):
-    """
-    Data model for a WeatherFlow Tempest weather station reading.
-    
-    Tempest provides comprehensive weather data including:
-    - Temperature, humidity, pressure
-    - Wind speed and direction
-    - Rain accumulation
-    - UV index and solar radiation
-    - Lightning strike data
-    
-    CSV Columns (in order):
-        Timestamp, Temperature (°F), Humidity (%), Pressure (mb),
-        Wind Speed (mph), Wind Gust (mph), Wind Direction (°),
-        Rain (in), UV Index, Solar Radiation (W/m²), Lightning Count
-    
-    Data Source:
-        UDP broadcast on port 50222 OR
-        HTTP GET from Tempest Hub
-    """
-    timestamp: datetime = Field(..., description="Reading timestamp")
-    temperature_f: float = Field(..., description="Temperature in Fahrenheit")
-    humidity_percent: float = Field(..., description="Relative humidity %")
-    pressure_mb: float = Field(..., description="Pressure in millibars")
-    wind_speed_mph: float = Field(..., description="Wind speed in mph")
-    wind_gust_mph: float = Field(..., description="Wind gust in mph")
-    wind_direction_deg: int = Field(..., description="Wind direction in degrees")
-    rain_inches: float = Field(..., description="Rain accumulation in inches")
-    uv_index: float = Field(..., description="UV index")
-    solar_radiation: float = Field(..., description="Solar radiation W/m²")
-    lightning_count: int = Field(..., description="Lightning strikes detected")
-
-    def to_csv_row(self) -> str:
-        """Convert reading to CSV row string."""
-        return (
-            f"{self.timestamp.isoformat()},"
-            f"{self.temperature_f},"
-            f"{self.humidity_percent},"
-            f"{self.pressure_mb},"
-            f"{self.wind_speed_mph},"
-            f"{self.wind_gust_mph},"
-            f"{self.wind_direction_deg},"
-            f"{self.rain_inches},"
-            f"{self.uv_index},"
-            f"{self.solar_radiation},"
-            f"{self.lightning_count}"
-        )
-
-    @staticmethod
-    def csv_header() -> str:
-        """Return CSV header row."""
+        """The header row for CSV files."""
         return (
             "Timestamp,Temperature (°F),Humidity (%),"
             "Pressure (mb),Wind Speed (mph),Wind Gust (mph),"
