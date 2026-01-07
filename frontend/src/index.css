@@ -1,7 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
+/* ============================================
+   THEME VARIABLES
+   ============================================ */
 :root {
-  /* Monochrome Palette */
+  /* Base Palette - Light Mode */
   --black: #0a0a0a;
   --grey-950: #141414;
   --grey-900: #1a1a1a;
@@ -17,7 +20,51 @@
   --grey-50: #f5f5f5;
   --white: #ffffff;
 
-  /* Semantic Colors */
+  /* Light Mode Semantic Colors */
+  --bg-primary: var(--grey-50);
+  --bg-secondary: var(--white);
+  --bg-card: var(--white);
+  --bg-hover: var(--grey-100);
+  --bg-elevated: var(--grey-100);
+
+  --border-subtle: var(--grey-200);
+  --border-default: var(--grey-300);
+  --border-strong: var(--grey-400);
+
+  --text-primary: var(--grey-950);
+  --text-secondary: var(--grey-600);
+  --text-muted: var(--grey-500);
+  --text-inverse: var(--white);
+
+  /* Status Colors */
+  --success: #16a34a;
+  --success-dim: rgba(22, 163, 74, 0.1);
+  --error: #dc2626;
+  --error-dim: rgba(220, 38, 38, 0.1);
+  --warning: #d97706;
+  --warning-dim: rgba(217, 119, 6, 0.1);
+
+  /* Accent */
+  --accent: var(--grey-900);
+  --accent-dim: rgba(0, 0, 0, 0.05);
+
+  /* UI Properties */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+
+  /* Button Colors - Light Mode */
+  --btn-primary-bg: var(--grey-900);
+  --btn-primary-text: var(--white);
+  --btn-primary-hover: var(--grey-800);
+}
+
+/* Dark Mode */
+html.dark {
   --bg-primary: var(--grey-950);
   --bg-secondary: var(--grey-900);
   --bg-card: var(--grey-850);
@@ -33,7 +80,7 @@
   --text-muted: var(--grey-500);
   --text-inverse: var(--black);
 
-  /* Status Colors - Muted */
+  /* Status Colors - Brighter for dark mode */
   --success: #4ade80;
   --success-dim: rgba(74, 222, 128, 0.12);
   --error: #f87171;
@@ -45,15 +92,20 @@
   --accent: var(--white);
   --accent-dim: rgba(255, 255, 255, 0.08);
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-xs: 4px;
-
+  /* Shadows - Darker for dark mode */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+  /* Button Colors - Dark Mode */
+  --btn-primary-bg: var(--white);
+  --btn-primary-text: var(--black);
+  --btn-primary-hover: var(--grey-200);
 }
 
+/* ============================================
+   BASE STYLES
+   ============================================ */
 * {
   margin: 0;
   padding: 0;
@@ -67,6 +119,7 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .app {
@@ -101,6 +154,7 @@ body {
   align-items: center;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .logo {
@@ -133,6 +187,37 @@ body {
   letter-spacing: -0.02em;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Theme Toggle */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.theme-toggle:active {
+  transform: scale(0.95);
+}
+
 .connection {
   display: flex;
   align-items: center;
@@ -144,6 +229,7 @@ body {
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--text-secondary);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .connection .dot {
@@ -169,6 +255,7 @@ body {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   overflow-x: auto;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .tab {
@@ -195,7 +282,7 @@ body {
 
 .tab.active {
   color: var(--text-primary);
-  border-bottom-color: var(--white);
+  border-bottom-color: var(--accent);
 }
 
 .tab.active.purple,
@@ -203,7 +290,7 @@ body {
 .tab.active.blue,
 .tab.active.amber {
   color: var(--text-primary);
-  border-bottom-color: var(--white);
+  border-bottom-color: var(--accent);
 }
 
 .tab-label {
@@ -226,6 +313,7 @@ body {
   flex: 1;
   padding: 32px;
   background: var(--bg-primary);
+  transition: background-color 0.2s ease;
 }
 
 .content-card {
@@ -233,6 +321,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   overflow: hidden;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .content-header {
@@ -242,6 +331,7 @@ body {
   align-items: center;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .content-header.purple,
@@ -267,6 +357,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-primary);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .content-header.purple .content-icon,
@@ -310,7 +401,7 @@ body {
 .empty-state svg {
   margin-bottom: 20px;
   opacity: 0.4;
-  color: var(--grey-500);
+  color: var(--text-muted);
 }
 
 .empty-state h3 {
@@ -458,6 +549,7 @@ body {
   padding: 4px 10px;
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .sensor-error {
@@ -468,6 +560,10 @@ body {
   color: var(--error);
   margin-bottom: 20px;
   border: 1px solid rgba(248, 113, 113, 0.2);
+}
+
+html:not(.dark) .sensor-error {
+  border: 1px solid rgba(220, 38, 38, 0.2);
 }
 
 .sensor-actions {
@@ -504,15 +600,15 @@ body {
 }
 
 .btn-primary {
-  background: var(--white);
-  color: var(--black);
-  border-color: var(--white);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-color: var(--btn-primary-bg);
 }
 
 .btn-primary:hover {
-  background: var(--grey-200);
-  border-color: var(--grey-200);
-  color: var(--black);
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+  color: var(--btn-primary-text);
 }
 
 .btn-success {
@@ -521,9 +617,17 @@ body {
   background: var(--success-dim);
 }
 
+html:not(.dark) .btn-success {
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
 .btn-success:hover {
   background: rgba(74, 222, 128, 0.2);
   border-color: var(--success);
+}
+
+html:not(.dark) .btn-success:hover {
+  background: rgba(22, 163, 74, 0.15);
 }
 
 .btn-danger {
@@ -534,6 +638,10 @@ body {
 .btn-danger:hover {
   background: var(--error-dim);
   border-color: rgba(248, 113, 113, 0.3);
+}
+
+html:not(.dark) .btn-danger:hover {
+  border-color: rgba(220, 38, 38, 0.3);
 }
 
 .btn-icon {
@@ -552,13 +660,17 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
   animation: fadeIn 0.15s ease;
+}
+
+html.dark .modal-overlay {
+  background: rgba(0, 0, 0, 0.8);
 }
 
 @keyframes fadeIn {
@@ -575,6 +687,7 @@ body {
   margin: 16px;
   animation: slideUp 0.2s ease;
   box-shadow: var(--shadow-lg);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 @keyframes slideUp {
@@ -628,6 +741,7 @@ body {
   gap: 12px;
   background: var(--bg-secondary);
   border-radius: 0 0 var(--radius) var(--radius);
+  transition: background-color 0.2s ease;
 }
 
 /* ============================================
@@ -665,9 +779,17 @@ body {
 
 .form-input:focus {
   outline: none;
-  border-color: var(--white);
+  border-color: var(--accent);
   background: var(--bg-primary);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+html.dark .form-input:focus {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+html:not(.dark) .form-input:focus {
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .form-input::placeholder {
@@ -686,6 +808,10 @@ body {
   color: var(--error);
   font-size: 0.875rem;
   margin-bottom: 24px;
+}
+
+html:not(.dark) .form-error {
+  border: 1px solid rgba(220, 38, 38, 0.25);
 }
 
 /* ============================================
@@ -712,6 +838,7 @@ body {
   min-width: 300px;
   animation: slideIn 0.25s ease;
   box-shadow: var(--shadow-lg);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 @keyframes slideIn {
@@ -751,6 +878,15 @@ body {
 @media (max-width: 768px) {
   .header {
     padding: 14px 20px;
+  }
+
+  .header-right {
+    gap: 8px;
+  }
+
+  .theme-toggle {
+    width: 36px;
+    height: 36px;
   }
 
   .tabs {
