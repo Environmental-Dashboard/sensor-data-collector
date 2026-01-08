@@ -15,6 +15,7 @@ export interface Sensor {
   last_active: string | null;
   last_error: string | null;
   created_at: string;
+  battery_volts: number | null;  // Tempest battery voltage
 }
 
 // List response
@@ -32,10 +33,8 @@ export interface AddPurpleAirRequest {
 }
 
 export interface AddTempestRequest {
-  ip_address: string;
-  name: string;
-  location: string;
   device_id: string;
+  location: string;
   upload_token: string;
 }
 

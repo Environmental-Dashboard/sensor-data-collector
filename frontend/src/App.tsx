@@ -3,7 +3,7 @@ import {
   Wind, CloudSun, Droplets, Database,
   Plus, Power, PowerOff, Play, Trash2, X,
   Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2,
-  Sun, Moon
+  Sun, Moon, Battery
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
 import * as api from './api';
@@ -129,7 +129,8 @@ export default function App() {
       showToast('success', `${sensor.name} is now active!`);
       fetchSensors();
     } catch (e: any) {
-      showToast('error', e.message);
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to turn on sensor';
+      showToast('error', msg);
     }
     setActionLoading(null);
   };
@@ -141,7 +142,8 @@ export default function App() {
       showToast('success', `${sensor.name} stopped`);
       fetchSensors();
     } catch (e: any) {
-      showToast('error', e.message);
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to turn off sensor';
+      showToast('error', msg);
     }
     setActionLoading(null);
   };
@@ -151,13 +153,22 @@ export default function App() {
     try {
       const result = await api.fetchNow(sensor.id);
       if (result.status === 'success') {
-        showToast('success', `Data fetched from ${sensor.name}!`);
+        showToast('success', `✓ ${sensor.name} is active and working!`);
+      } else if (result.status === 'info') {
+        // Tempest auto-push info message
+        const msg = typeof result.message === 'string' ? result.message : 'Sensor is working';
+        showToast('success', msg);
       } else {
-        showToast('error', result.error_message || 'Fetch failed');
+        // Handle error - make sure we get a string
+        const errorMsg = typeof result.error_message === 'string' 
+          ? result.error_message 
+          : (typeof result.message === 'string' ? result.message : 'Ping failed');
+        showToast('error', errorMsg);
       }
       fetchSensors();
     } catch (e: any) {
-      showToast('error', e.message);
+      const errorMsg = typeof e.message === 'string' ? e.message : 'An error occurred';
+      showToast('error', errorMsg);
     }
     setActionLoading(null);
   };
@@ -170,7 +181,8 @@ export default function App() {
       showToast('success', `${sensor.name} deleted`);
       fetchSensors();
     } catch (e: any) {
-      showToast('error', e.message);
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to delete sensor';
+      showToast('error', msg);
     }
     setActionLoading(null);
   };
@@ -372,6 +384,12 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <code>{sensor.ip_address}</code>
           </div>
         )}
+        {sensor.sensor_type === 'tempest' && sensor.battery_volts !== null && (
+          <div className={`meta-item ${sensor.battery_volts < 2.5 ? 'battery-low' : ''}`}>
+            <Battery size={14} />
+            <span>{sensor.battery_volts}V</span>
+          </div>
+        )}
         <div className="meta-item">
           <Clock size={14} />
           <span>{timeAgo(sensor.last_active)}</span>
@@ -392,9 +410,16 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <Power size={16} /> Turn On
           </button>
         )}
-        <button className="btn" onClick={onFetchNow} disabled={loading}>
-          <Play size={16} /> Fetch Now
-        </button>
+        {/* Tempest pushes data automatically, show auto-push badge */}
+        {sensor.sensor_type === 'tempest' && sensor.is_active && (
+          <span className="auto-push-badge">Auto-push</span>
+        )}
+        {/* Purple Air and others: Ping button to test connection */}
+        {sensor.sensor_type !== 'tempest' && (
+          <button className="btn" onClick={onFetchNow} disabled={loading}>
+            <Play size={16} /> Ping
+          </button>
+        )}
         <button className="btn btn-icon btn-danger" onClick={onDelete} disabled={loading}>
           <Trash2 size={16} />
         </button>
@@ -423,65 +448,95 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
     e.preventDefault();
     setError('');
 
-    if (!ip || !name || !location || !token) {
-      setError('All fields are required');
-      return;
-    }
-
-    if (type === 'tempest' && !deviceId) {
-      setError('Device ID is required for Tempest');
-      return;
+    // Validate based on sensor type
+    if (type === 'purple_air') {
+      if (!ip || !name || !location || !token) {
+        setError('All fields are required');
+        return;
+      }
+    } else if (type === 'tempest') {
+      if (!deviceId || !location || !token) {
+        setError('Device ID, Location, and Upload Token are required');
+        return;
+      }
     }
 
     setLoading(true);
     try {
       if (type === 'purple_air') {
         await onSubmit({ ip_address: ip, name, location, upload_token: token });
-      } else {
-        await onSubmit({ ip_address: ip, name, location, device_id: deviceId, upload_token: token });
+      } else if (type === 'tempest') {
+        await onSubmit({ device_id: deviceId, location, upload_token: token });
       }
     } catch (e: any) {
-      setError(e.message);
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to add sensor';
+      setError(msg);
       setLoading(false);
     }
   };
-
-  const title = type === 'purple_air' ? 'Add Air Quality Sensor' : 'Add Weather Station';
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <h2>{title}</h2>
+          <h2>
+            {type === 'purple_air' && 'Add Air Quality Sensor'}
+            {type === 'tempest' && 'Add Weather Station'}
+            {type === 'water_quality' && 'Add Water Quality Sensor'}
+            {type === 'do_sensor' && 'Add DO Sensor'}
+          </h2>
           <button className="modal-close" onClick={onClose}><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             {error && <div className="form-error">{error}</div>}
             
-            <div className="form-group">
-              <label className="form-label">IP Address</label>
-              <input
-                type="text"
-                className="form-input mono"
-                placeholder="192.168.1.100"
-                value={ip}
-                onChange={e => setIp(e.target.value)}
-                disabled={loading}
-              />
-            </div>
+            {/* Purple Air: IP Address */}
+            {type === 'purple_air' && (
+              <div className="form-group">
+                <label className="form-label">IP Address</label>
+                <input
+                  type="text"
+                  className="form-input mono"
+                  placeholder="192.168.1.100"
+                  value={ip}
+                  onChange={e => setIp(e.target.value)}
+                  disabled={loading}
+                />
+                <p className="form-hint">Find this in your router or PurpleAir app</p>
+              </div>
+            )}
 
-            <div className="form-group">
-              <label className="form-label">Sensor Name</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Lab Sensor"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                disabled={loading}
-              />
-            </div>
+            {/* Tempest: Device ID */}
+            {type === 'tempest' && (
+              <div className="form-group">
+                <label className="form-label">Device ID</label>
+                <input
+                  type="text"
+                  className="form-input mono"
+                  placeholder="205498"
+                  value={deviceId}
+                  onChange={e => setDeviceId(e.target.value)}
+                  disabled={loading}
+                />
+                <p className="form-hint">Find in WeatherFlow app under station settings</p>
+              </div>
+            )}
+
+            {/* Purple Air: Sensor Name */}
+            {type === 'purple_air' && (
+              <div className="form-group">
+                <label className="form-label">Sensor Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Lab Sensor"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+            )}
 
             <div className="form-group">
               <label className="form-label">Location</label>
@@ -495,20 +550,6 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
               />
             </div>
 
-            {type === 'tempest' && (
-              <div className="form-group">
-                <label className="form-label">Device ID</label>
-                <input
-                  type="text"
-                  className="form-input mono"
-                  placeholder="12345"
-                  value={deviceId}
-                  onChange={e => setDeviceId(e.target.value)}
-                  disabled={loading}
-                />
-              </div>
-            )}
-
             <div className="form-group">
               <label className="form-label">Upload Token</label>
               <input
@@ -519,6 +560,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
                 onChange={e => setToken(e.target.value)}
                 disabled={loading}
               />
+              <p className="form-hint">Get this from oberlin.communityhub.cloud</p>
             </div>
           </div>
 

@@ -161,17 +161,10 @@ async def add_tempest_sensor(
     Add a Tempest weather station.
     
     Send us:
-    - ip_address: The Tempest Hub's IP
-    - name: What you want to call it
-    - location: Where it is
     - device_id: The Tempest device ID (find this in the WeatherFlow app)
+    - location: Where it is
     - upload_token: Your cloud token
     """
-    # Basic IP validation
-    parts = request.ip_address.split(".")
-    if len(parts) != 4:
-        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address")
-    
     return manager.add_tempest_sensor(request)
 
 

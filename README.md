@@ -26,12 +26,22 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 │  ┌──────────────┐     ┌─────────────────────────────────────────────┐   │
 │  │   Sensors    │     │              Backend (FastAPI)               │   │
 │  │              │     │                                              │   │
-│  │ Purple Air   │────▶│  1. Fetches data from sensors every 60s     │   │
-│  │ (Air Quality)│     │  2. Converts to CSV                         │   │
-│  │              │     │  3. Uploads to oberlin.communityhub.cloud   │   │
-│  │ Tempest      │────▶│                                              │   │
-│  │ (Weather)    │     │  Runs on: http://localhost:8000              │   │
-│  └──────────────┘     └──────────────────┬──────────────────────────┘   │
+│  │ Purple Air   │────▶│  • Purple Air: Polls every 60s              │   │
+│  │ (Air Quality)│     │  • Tempest: Real-time via WebSocket         │   │
+│  │              │     │  • Converts to CSV                          │   │
+│  │              │     │  • Uploads to oberlin.communityhub.cloud    │   │
+│  └──────────────┘     │                                              │   │
+│                       │  Runs on: http://localhost:8000              │   │
+│                       └──────────────────┬──────────────────────────┘   │
+│                                          │                               │
+│                                          │                               │
+│  ┌──────────────┐                        │                               │
+│  │ WeatherFlow  │◀───WebSocket───────────┤                               │
+│  │ Cloud API    │   (Real-time data)     │                               │
+│  │              │                        │                               │
+│  │ Tempest      │                        │                               │
+│  │ (Weather)    │                        │                               │
+│  └──────────────┘                        │                               │
 │                                          │                               │
 │                       ┌──────────────────▼──────────────────┐           │
 │                       │       Cloudflare Tunnel              │           │
@@ -54,7 +64,7 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 │  │  - Shows sensor status                                           │    │
 │  │  - Add/remove sensors                                            │    │
 │  │  - Turn sensors on/off                                           │    │
-│  │  - Manual data fetch                                             │    │
+│  │  - Manual data fetch (Purple Air only)                           │    │
 │  │                                                                  │    │
 │  │  Connects to backend via Cloudflare Tunnel URL                   │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
@@ -73,6 +83,42 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 2. **Cloudflare Tunnel** exposes the backend to the internet (no port forwarding needed)
 3. **Frontend** is hosted on Vercel and connects to backend via the tunnel
 4. **Data** is uploaded to `oberlin.communityhub.cloud`
+
+---
+
+## Adding Sensors
+
+### Purple Air (Air Quality)
+
+**What you need:**
+- **IP Address**: Local network IP of your Purple Air sensor
+- **Upload Token**: Get from `oberlin.communityhub.cloud`
+
+**How it works:** Backend polls the sensor every 60 seconds via local network.
+
+### Tempest (Weather Station)
+
+**What you need:**
+- **Device ID**: Find in WeatherFlow app under station settings (e.g., `205498`)
+- **Location**: Where the station is physically located
+- **Upload Token**: Get from `oberlin.communityhub.cloud`
+
+**Note:** The WeatherFlow API token is configured in the backend (`TEMPEST_API_TOKEN` in `main.py`). One token works for ALL Tempest devices.
+
+**How it works:** 
+- Connects to WeatherFlow cloud via WebSocket
+- Receives real-time data automatically when Tempest broadcasts
+- Uploads immediately to Community Hub
+- Shows battery voltage on dashboard
+
+**API Documentation:** [weatherflow.github.io/Tempest/api/](https://weatherflow.github.io/Tempest/api/)
+
+### Water Quality (Ubidots)
+
+**What you need:**
+- **Device ID**: 24-character hex ID from Ubidots
+- **Ubidots Token**: Starts with `BBUS-`, get from Ubidots dashboard
+- **Upload Token**: Get from `oberlin.communityhub.cloud`
 
 ---
 

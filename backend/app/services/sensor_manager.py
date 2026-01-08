@@ -55,7 +55,8 @@ class SensorManager:
         self,
         purple_air_service: PurpleAirService,
         tempest_service: TempestService,
-        polling_interval: int = 60
+        polling_interval: int = 60,
+        tempest_api_token: str = ""
     ):
         """
         Set up the manager.
@@ -64,10 +65,12 @@ class SensorManager:
             purple_air_service: The service that handles Purple Air sensors
             tempest_service: The service that handles Tempest sensors
             polling_interval: How often to fetch data (seconds). Default is 60.
+            tempest_api_token: WeatherFlow API token for all Tempest sensors
         """
         self.purple_air_service = purple_air_service
         self.tempest_service = tempest_service
         self.polling_interval = polling_interval
+        self.tempest_api_token = tempest_api_token
         
         # This is where we store all sensors in memory
         self._sensors: dict[str, dict] = {}
@@ -144,14 +147,21 @@ class SensorManager:
     
     
     def _restart_active_sensors(self):
-        """Restart polling for sensors that were active before shutdown."""
+        """Restart data collection for sensors that were active before shutdown."""
         for sensor_id, sensor in self._sensors.items():
             if sensor.get("is_active"):
-                print(f"Restarting polling for sensor: {sensor['name']}")
+                print(f"Restarting data collection for sensor: {sensor['name']}")
                 if sensor["sensor_type"] == SensorType.PURPLE_AIR:
                     self._start_polling_job(sensor_id, self._poll_purple_air_sensor)
                 elif sensor["sensor_type"] == SensorType.TEMPEST:
-                    self._start_polling_job(sensor_id, self._poll_tempest_sensor)
+                    # Tempest uses cloud WebSocket listener (uses centralized API token)
+                    self.tempest_service.start_listener(
+                        device_id=sensor["device_id"],
+                        api_token=self.tempest_api_token,
+                        upload_token=sensor["upload_token"],
+                        sensor_name=sensor["name"],
+                        on_data_callback=self._on_tempest_data
+                    )
     
     
     # =========================================================================
@@ -189,6 +199,11 @@ class SensorManager:
     def add_tempest_sensor(self, request: AddTempestSensorRequest) -> SensorResponse:
         """
         Register a new Tempest weather station.
+        
+        Uses WeatherFlow cloud WebSocket API for real-time data.
+        API docs: https://weatherflow.github.io/Tempest/api/
+        
+        Note: API token is stored centrally in backend config, not per-sensor.
         """
         sensor_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
@@ -196,9 +211,9 @@ class SensorManager:
         sensor_data = {
             "id": sensor_id,
             "sensor_type": SensorType.TEMPEST,
-            "name": request.name,
+            "name": request.device_id,  # Use device_id as name
             "location": request.location,
-            "ip_address": request.ip_address,
+            "ip_address": None,  # Not used for cloud API
             "device_id": request.device_id,
             "upload_token": request.upload_token,
             "status": SensorStatus.INACTIVE,
@@ -206,6 +221,7 @@ class SensorManager:
             "last_active": None,
             "last_error": None,
             "created_at": now,
+            "battery_volts": None,  # Will be updated when data is fetched
         }
         
         self._sensors[sensor_id] = sensor_data
@@ -265,11 +281,18 @@ class SensorManager:
         # Clear old error when turning on
         sensor["last_error"] = None
         
-        # Start polling based on sensor type
+        # Start data collection based on sensor type
         if sensor["sensor_type"] == SensorType.PURPLE_AIR:
             self._start_polling_job(sensor_id, self._poll_purple_air_sensor)
         elif sensor["sensor_type"] == SensorType.TEMPEST:
-            self._start_polling_job(sensor_id, self._poll_tempest_sensor)
+            # Tempest uses cloud WebSocket listener (uses centralized API token)
+            self.tempest_service.start_listener(
+                device_id=sensor["device_id"],
+                api_token=self.tempest_api_token,
+                upload_token=sensor["upload_token"],
+                sensor_name=sensor["name"],
+                on_data_callback=self._on_tempest_data
+            )
         
         sensor["is_active"] = True
         sensor["status"] = SensorStatus.ACTIVE
@@ -285,7 +308,11 @@ class SensorManager:
         
         sensor = self._sensors[sensor_id]
         
-        self._stop_polling_job(sensor_id)
+        # Stop data collection based on sensor type
+        if sensor["sensor_type"] == SensorType.PURPLE_AIR:
+            self._stop_polling_job(sensor_id)
+        elif sensor["sensor_type"] == SensorType.TEMPEST:
+            self.tempest_service.stop_listener(sensor["device_id"])
         
         sensor["is_active"] = False
         sensor["status"] = SensorStatus.INACTIVE
@@ -359,26 +386,35 @@ class SensorManager:
         self._save_to_file()  # Persist status updates
     
     
-    async def _poll_tempest_sensor(self, sensor_id: str):
-        """Poll a Tempest sensor (runs every 60 seconds)."""
-        sensor = self._sensors.get(sensor_id)
+    async def _on_tempest_data(self, device_id: str, result: dict):
+        """
+        Callback when Tempest data is received from cloud WebSocket.
+        
+        This is called automatically whenever WeatherFlow sends new data.
+        """
+        # Find the sensor by device_id
+        sensor = None
+        for s in self._sensors.values():
+            if s.get("device_id") == device_id and s["sensor_type"] == SensorType.TEMPEST:
+                sensor = s
+                break
+        
         if not sensor:
             return
-        
-        result = await self.tempest_service.fetch_and_push(
-            ip_address=sensor["ip_address"],
-            device_id=sensor["device_id"],
-            sensor_name=sensor["name"],
-            upload_token=sensor["upload_token"]
-        )
         
         if result["status"] == "success":
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
+            # Store battery voltage from the reading
+            reading = result.get("reading", {})
+            if reading.get("battery_volts"):
+                sensor["battery_volts"] = reading["battery_volts"]
+            print(f"Tempest {device_id}: Data received and uploaded")
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message", "Unknown error")
+            print(f"Tempest {device_id}: Error - {sensor['last_error']}")
         
         self._save_to_file()  # Persist status updates
     
@@ -400,12 +436,15 @@ class SensorManager:
                 upload_token=sensor["upload_token"]
             )
         elif sensor["sensor_type"] == SensorType.TEMPEST:
-            result = await self.tempest_service.fetch_and_push(
-                ip_address=sensor["ip_address"],
-                device_id=sensor["device_id"],
-                sensor_name=sensor["name"],
-                upload_token=sensor["upload_token"]
-            )
+            # Tempest uses continuous listener - data is pushed automatically
+            # For manual fetch, we just return the current status
+            return {
+                "status": "info",
+                "sensor_name": sensor["name"],
+                "message": "Tempest sensors push data automatically when received. No manual fetch needed.",
+                "last_active": sensor["last_active"].isoformat() if sensor["last_active"] else None,
+                "battery_volts": sensor.get("battery_volts")
+            }
         else:
             return {"status": "error", "error_message": f"Unknown sensor type: {sensor['sensor_type']}"}
         
@@ -413,6 +452,11 @@ class SensorManager:
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
+            # Store battery voltage for Tempest sensors
+            if sensor["sensor_type"] == SensorType.TEMPEST:
+                reading = result.get("reading", {})
+                if reading.get("battery_volts"):
+                    sensor["battery_volts"] = reading["battery_volts"]
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message")

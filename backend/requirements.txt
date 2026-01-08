@@ -5,6 +5,9 @@ uvicorn>=0.32.0
 # HTTP Client for sensor requests
 httpx>=0.27.0
 
+# WebSocket client for Tempest cloud API
+websockets>=12.0
+
 # Background task scheduling
 apscheduler>=3.10.4
 

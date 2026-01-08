@@ -132,18 +132,35 @@ class AddTempestSensorRequest(BaseModel):
     Tempest is a WeatherFlow device that measures weather stuff:
     temperature, wind, rain, UV, even lightning!
     
+    API Documentation: https://weatherflow.github.io/Tempest/api/
+    
+    Note: The WeatherFlow API token is configured in the backend.
+    One token works for ALL Tempest devices.
+    
     Fields:
-        ip_address: IP of the Tempest Hub (the base station)
-        name: What do you want to call it?
-        location: Where is it?
-        device_id: The Tempest device ID (find this in the WeatherFlow app)
-        upload_token: Your cloud upload token
+        device_id: The Tempest device ID (e.g., "205498")
+                   Find this in the WeatherFlow Tempest app under station settings.
+        
+        location: Where is it physically located?
+        
+        upload_token: Your upload token for oberlin.communityhub.cloud
     """
-    ip_address: str = Field(..., description="IP of the Tempest Hub")
-    name: str = Field(..., description="Friendly name", min_length=1, max_length=100)
-    location: str = Field(..., description="Physical location", min_length=1, max_length=200)
-    device_id: str = Field(..., description="Device ID from WeatherFlow app")
-    upload_token: str = Field(..., description="Your upload token")
+    device_id: str = Field(
+        ..., 
+        description="Device ID from WeatherFlow app (e.g., 205498)",
+        examples=["205498", "123456"]
+    )
+    location: str = Field(
+        ..., 
+        description="Physical location", 
+        min_length=1, 
+        max_length=200,
+        examples=["Science Building Roof", "Main Quad"]
+    )
+    upload_token: str = Field(
+        ..., 
+        description="Your upload token for oberlin.communityhub.cloud"
+    )
 
 
 class AddWaterQualitySensorRequest(BaseModel):
@@ -224,6 +241,7 @@ class SensorResponse(BaseModel):
     last_active: Optional[datetime] = Field(None, description="Last successful data fetch")
     last_error: Optional[str] = Field(None, description="Last error message")
     created_at: datetime = Field(..., description="When sensor was added")
+    battery_volts: Optional[float] = Field(None, description="Battery voltage (Tempest only)")
 
 
 class SensorListResponse(BaseModel):
@@ -336,71 +354,132 @@ class PurpleAirReading(BaseModel):
 # TEMPEST WEATHER DATA
 # =============================================================================
 # Weather data from a Tempest weather station.
+# API Reference: https://weatherflow.github.io/Tempest/api/
 
 class TempestReading(BaseModel):
     """
     One reading from a Tempest weather station.
     
-    Tempest gives us tons of weather data:
+    ALL available data from Tempest via WebSocket:
     
-        timestamp: When we took this reading
-        
-        temperature_f: How hot/cold (Fahrenheit)
-        
-        humidity_percent: Humidity (0-100%)
-        
-        pressure_mb: Air pressure in millibars
-        
-        wind_speed_mph: Current wind speed (miles per hour)
-        
-        wind_gust_mph: Strongest gust recently
-        
-        wind_direction_deg: Which way is the wind coming from?
-                           0° = North, 90° = East, 180° = South, 270° = West
-        
-        rain_inches: How much rain has fallen
-        
-        uv_index: UV radiation level (higher = more sunburn risk)
-                  0-2 = Low, 3-5 = Moderate, 6-7 = High, 8-10 = Very High, 11+ = Extreme
-        
-        solar_radiation: Sunlight power in Watts per square meter
-        
-        lightning_count: Number of lightning strikes detected
+    TEMPERATURE & HUMIDITY:
+        timestamp: When this reading was taken (UTC)
+        temperature_c: Temperature in Celsius
+        temperature_f: Temperature in Fahrenheit
+        humidity_percent: Relative humidity (0-100%)
+    
+    WIND:
+        wind_avg_ms: Average wind speed (m/s)
+        wind_avg_mph: Average wind speed (mph)
+        wind_gust_ms: Wind gust speed (m/s)
+        wind_gust_mph: Wind gust speed (mph)
+        wind_lull_ms: Wind lull/minimum (m/s)
+        wind_lull_mph: Wind lull/minimum (mph)
+        wind_direction_deg: Wind direction (0°=N, 90°=E, 180°=S, 270°=W)
+    
+    PRESSURE:
+        pressure_mb: Station pressure (millibars)
+        pressure_inhg: Station pressure (inches of mercury)
+    
+    SOLAR & UV:
+        uv_index: UV radiation level (0-11+)
+        solar_radiation_wm2: Solar radiation (W/m²)
+        illuminance_lux: Light level (lux)
+    
+    PRECIPITATION:
+        rain_mm: Rain accumulated since last report (mm)
+        rain_inches: Rain accumulated since last report (inches)
+        precip_type: 0=None, 1=Rain, 2=Hail, 3=Rain+Hail
+    
+    LIGHTNING:
+        lightning_count: Number of strikes detected
+        lightning_avg_distance_km: Average distance to strikes (km)
+        lightning_avg_distance_mi: Average distance to strikes (miles)
+    
+    DEVICE:
+        battery_volts: Battery voltage (2.4V=low, 2.7V=full)
+        report_interval_min: How often device reports (minutes)
     """
+    # Timestamp (UTC)
     timestamp: datetime
-    temperature_f: float
-    humidity_percent: float
-    pressure_mb: float
-    wind_speed_mph: float
-    wind_gust_mph: float
-    wind_direction_deg: int
-    rain_inches: float
-    uv_index: float
-    solar_radiation: float
-    lightning_count: int
+    
+    # Temperature & Humidity
+    temperature_c: float = Field(default=0.0, description="Temperature (°C)")
+    temperature_f: float = Field(default=0.0, description="Temperature (°F)")
+    humidity_percent: float = Field(default=0.0, description="Relative humidity (%)")
+    
+    # Wind
+    wind_avg_ms: float = Field(default=0.0, description="Average wind speed (m/s)")
+    wind_avg_mph: float = Field(default=0.0, description="Average wind speed (mph)")
+    wind_gust_ms: float = Field(default=0.0, description="Wind gust (m/s)")
+    wind_gust_mph: float = Field(default=0.0, description="Wind gust (mph)")
+    wind_lull_ms: float = Field(default=0.0, description="Wind lull (m/s)")
+    wind_lull_mph: float = Field(default=0.0, description="Wind lull (mph)")
+    wind_direction_deg: int = Field(default=0, description="Wind direction (degrees)")
+    
+    # Pressure
+    pressure_mb: float = Field(default=0.0, description="Pressure (millibars)")
+    pressure_inhg: float = Field(default=0.0, description="Pressure (inHg)")
+    
+    # Solar & UV
+    uv_index: float = Field(default=0.0, description="UV index")
+    solar_radiation_wm2: float = Field(default=0.0, description="Solar radiation (W/m²)")
+    illuminance_lux: float = Field(default=0.0, description="Illuminance (lux)")
+    
+    # Precipitation
+    rain_mm: float = Field(default=0.0, description="Rain since last report (mm)")
+    rain_inches: float = Field(default=0.0, description="Rain since last report (inches)")
+    precip_type: int = Field(default=0, description="0=None, 1=Rain, 2=Hail, 3=Mix")
+    
+    # Lightning
+    lightning_count: int = Field(default=0, description="Lightning strike count")
+    lightning_avg_distance_km: float = Field(default=0.0, description="Avg lightning distance (km)")
+    lightning_avg_distance_mi: float = Field(default=0.0, description="Avg lightning distance (mi)")
+    
+    # Device
+    battery_volts: float = Field(default=0.0, description="Battery voltage (V)")
+    report_interval_min: int = Field(default=1, description="Report interval (minutes)")
 
     def to_csv_row(self) -> str:
         """Turn this reading into a CSV row."""
         return (
-            f"{self.timestamp.isoformat()},"
-            f"{self.temperature_f},"
-            f"{self.humidity_percent},"
-            f"{self.pressure_mb},"
-            f"{self.wind_speed_mph},"
-            f"{self.wind_gust_mph},"
+            f"{self.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')},"  # UTC ISO format
+            f"{self.temperature_c:.2f},"
+            f"{self.temperature_f:.2f},"
+            f"{self.humidity_percent:.1f},"
+            f"{self.wind_avg_ms:.2f},"
+            f"{self.wind_avg_mph:.2f},"
+            f"{self.wind_gust_ms:.2f},"
+            f"{self.wind_gust_mph:.2f},"
+            f"{self.wind_lull_ms:.2f},"
+            f"{self.wind_lull_mph:.2f},"
             f"{self.wind_direction_deg},"
-            f"{self.rain_inches},"
-            f"{self.uv_index},"
-            f"{self.solar_radiation},"
-            f"{self.lightning_count}"
+            f"{self.pressure_mb:.2f},"
+            f"{self.pressure_inhg:.3f},"
+            f"{self.uv_index:.2f},"
+            f"{self.solar_radiation_wm2:.1f},"
+            f"{self.illuminance_lux:.0f},"
+            f"{self.rain_mm:.2f},"
+            f"{self.rain_inches:.4f},"
+            f"{self.precip_type},"
+            f"{self.lightning_count},"
+            f"{self.lightning_avg_distance_km:.1f},"
+            f"{self.lightning_avg_distance_mi:.1f},"
+            f"{self.battery_volts:.2f},"
+            f"{self.report_interval_min}"
         )
 
     @staticmethod
     def csv_header() -> str:
         """The header row for CSV files."""
         return (
-            "Timestamp,Temperature (°F),Humidity (%),"
-            "Pressure (mb),Wind Speed (mph),Wind Gust (mph),"
-            "Wind Direction (°),Rain (in),UV Index,"
-            "Solar Radiation (W/m²),Lightning Count"
+            "Timestamp (UTC),"
+            "Temperature (°C),Temperature (°F),Humidity (%),"
+            "Wind Avg (m/s),Wind Avg (mph),Wind Gust (m/s),Wind Gust (mph),"
+            "Wind Lull (m/s),Wind Lull (mph),Wind Direction (°),"
+            "Pressure (mb),Pressure (inHg),"
+            "UV Index,Solar Radiation (W/m²),Illuminance (lux),"
+            "Rain (mm),Rain (in),Precip Type,"
+            "Lightning Count,Lightning Distance (km),Lightning Distance (mi),"
+            "Battery (V),Report Interval (min)"
         )

@@ -24,6 +24,11 @@ load_dotenv()
 class Config:
     POLLING_INTERVAL = int(os.getenv("POLLING_INTERVAL", "60"))
     
+    # WeatherFlow Tempest API Token
+    # Get from https://tempestwx.com/settings/tokens
+    # One token works for ALL Tempest devices
+    TEMPEST_API_TOKEN = os.getenv("TEMPEST_API_TOKEN", "f9c76677-ed46-4902-ab96-a89fcb9ac1bf")
+    
     # CORS - Allow the frontend to connect
     CORS_ORIGINS = [
         "https://ed-sensor-dashboard.vercel.app",   # Production frontend
@@ -49,7 +54,8 @@ async def lifespan(app: FastAPI):
     sensor_manager = SensorManager(
         purple_air_service=purple_air_service,
         tempest_service=tempest_service,
-        polling_interval=Config.POLLING_INTERVAL
+        polling_interval=Config.POLLING_INTERVAL,
+        tempest_api_token=Config.TEMPEST_API_TOKEN
     )
     
     set_sensor_manager(sensor_manager)
