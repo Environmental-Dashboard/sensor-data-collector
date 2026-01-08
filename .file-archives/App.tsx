@@ -2,47 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Wind, CloudSun, Droplets, Database,
   Plus, Power, PowerOff, Play, Trash2, X,
-  Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2,
-  Sun, Moon
+  Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
 import * as api from './api';
 import iconImage from './images/icon.png';
-
-// Theme hook
-function useTheme() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    // Check if we're in a browser environment
-    if (typeof window === 'undefined') return 'light';
-    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-  });
-
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => {
-      const newTheme = prev === 'light' ? 'dark' : 'light';
-      
-      // Update DOM
-      if (newTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-      
-      // Persist preference
-      localStorage.setItem('theme', newTheme);
-      
-      // Update theme-color meta tag for mobile browsers
-      const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-      if (metaThemeColor) {
-        metaThemeColor.setAttribute('content', newTheme === 'dark' ? '#0a0a0a' : '#ffffff');
-      }
-      
-      return newTheme;
-    });
-  }, []);
-
-  return { theme, toggleTheme };
-}
 
 // Format relative time
 function timeAgo(timestamp: string | null): string {
@@ -72,7 +36,6 @@ interface Toast {
 }
 
 export default function App() {
-  const { theme, toggleTheme } = useTheme();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sensors, setSensors] = useState<Sensor[]>([]);
@@ -214,23 +177,10 @@ export default function App() {
           </div>
           <h1>Sensor Dashboard</h1>
         </div>
-        <div className="header-right">
-          {/* Theme Toggle */}
-          <button 
-            className="theme-toggle" 
-            onClick={toggleTheme}
-            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-            title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-          >
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
-          
-          {/* Connection Status */}
-          <div className={`connection ${connected ? '' : 'offline'}`}>
-            <span className="dot" />
-            {connected ? <Wifi size={16} /> : <WifiOff size={16} />}
-            {connected ? 'Connected' : 'Disconnected'}
-          </div>
+        <div className={`connection ${connected ? '' : 'offline'}`}>
+          <span className="dot" />
+          {connected ? <Wifi size={16} /> : <WifiOff size={16} />}
+          {connected ? 'Connected' : 'Disconnected'}
         </div>
       </header>
 
@@ -455,10 +405,11 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
           <h2>{title}</h2>
           <button className="modal-close" onClick={onClose}><X size={20} /></button>
         </div>
+
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             {error && <div className="form-error">{error}</div>}
-            
+
             <div className="form-group">
               <label className="form-label">IP Address</label>
               <input
