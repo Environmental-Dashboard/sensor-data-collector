@@ -10,10 +10,69 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 
 | Sensor Type | Status | Description |
 |-------------|--------|-------------|
-| **Purple Air** | Ready | Air quality monitoring (PM2.5, temperature, humidity) |
-| **Tempest** | Ready | Weather station (temp, wind, rain, UV, lightning) |
-| **Water Quality** | Coming Soon | Water quality monitoring |
-| **DO Sensor** | Coming Soon | Dissolved oxygen monitoring |
+| **Purple Air** | ✅ Ready | Air quality monitoring (PM2.5, temperature, humidity) |
+| **Tempest** | ✅ Ready | Weather station (temp, wind, rain, UV, lightning) |
+| **Water Quality** | 🚧 Coming Soon | Water quality monitoring |
+| **DO Sensor** | 🚧 Coming Soon | Dissolved oxygen monitoring |
+
+---
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         YOUR LOCAL COMPUTER                              │
+│                                                                          │
+│  ┌──────────────┐     ┌─────────────────────────────────────────────┐   │
+│  │   Sensors    │     │              Backend (FastAPI)               │   │
+│  │              │     │                                              │   │
+│  │ Purple Air   │────▶│  1. Fetches data from sensors every 60s     │   │
+│  │ (Air Quality)│     │  2. Converts to CSV                         │   │
+│  │              │     │  3. Uploads to oberlin.communityhub.cloud   │   │
+│  │ Tempest      │────▶│                                              │   │
+│  │ (Weather)    │     │  Runs on: http://localhost:8000              │   │
+│  └──────────────┘     └──────────────────┬──────────────────────────┘   │
+│                                          │                               │
+│                       ┌──────────────────▼──────────────────┐           │
+│                       │       Cloudflare Tunnel              │           │
+│                       │  (Exposes localhost to internet)     │           │
+│                       │                                      │           │
+│                       │  Creates URL like:                   │           │
+│                       │  https://xxx-xxx-xxx.trycloudflare.com│          │
+│                       └──────────────────┬──────────────────┘           │
+└──────────────────────────────────────────┼──────────────────────────────┘
+                                           │
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              INTERNET                                    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                    Frontend (Vercel)                             │    │
+│  │                                                                  │    │
+│  │  https://ed-sensor-dashboard.vercel.app                          │    │
+│  │                                                                  │    │
+│  │  - Shows sensor status                                           │    │
+│  │  - Add/remove sensors                                            │    │
+│  │  - Turn sensors on/off                                           │    │
+│  │  - Manual data fetch                                             │    │
+│  │                                                                  │    │
+│  │  Connects to backend via Cloudflare Tunnel URL                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │               oberlin.communityhub.cloud                         │    │
+│  │                                                                  │    │
+│  │  - Receives CSV data uploads                                     │    │
+│  │  - Stores sensor readings                                        │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Summary
+1. **Backend** runs on your local computer (where sensors are accessible)
+2. **Cloudflare Tunnel** exposes the backend to the internet (no port forwarding needed)
+3. **Frontend** is hosted on Vercel and connects to backend via the tunnel
+4. **Data** is uploaded to `oberlin.communityhub.cloud`
 
 ---
 
@@ -41,11 +100,13 @@ This gives you a URL like `https://random-words.trycloudflare.com`
 
 ### 3. Update Frontend with Tunnel URL
 
-Set the tunnel URL in Vercel environment variables.
+Set the tunnel URL in Vercel environment variables (see "Deploying Frontend" below).
 
 ---
 
 ## Auto-Start on Boot
+
+The system can start automatically when your computer boots:
 
 ### Setup Auto-Start
 
@@ -67,7 +128,7 @@ Set the tunnel URL in Vercel environment variables.
 
 Double-click `backend/start-hidden.vbs` to run both backend and tunnel in the background.
 
-**To stop:** Open Task Manager and End `python.exe` and `cloudflared.exe`
+**To stop:** Open Task Manager → End `python.exe` and `cloudflared.exe`
 
 ### Check Logs
 
@@ -88,6 +149,9 @@ sensor_data_collector/
 │   │   ├── models/            # Data models (sensor.py)
 │   │   ├── routers/           # API endpoints (sensors.py)
 │   │   └── services/          # Business logic
+│   │       ├── sensor_manager.py      # Orchestrates all sensors
+│   │       ├── purple_air_service.py  # Purple Air API
+│   │       └── tempest_service.py     # Tempest API
 │   ├── requirements.txt
 │   ├── start-backend.ps1      # Start backend (with auto-reload)
 │   ├── start-tunnel.ps1       # Start tunnel + update Vercel
@@ -99,14 +163,35 @@ sensor_data_collector/
     │   ├── api.ts             # API client functions
     │   ├── types.ts           # TypeScript interfaces
     │   └── index.css          # All styling
-    └── vercel.json            # Vercel config
+    ├── vercel.json            # Vercel config
+    └── package.json
 ```
 
 ---
 
 ## Deploying Frontend to Vercel
 
+### First Time Setup
+
+1. Install Vercel CLI:
+   ```powershell
+   npm install -g vercel
+   ```
+
+2. Login to Vercel:
+   ```powershell
+   vercel login
+   ```
+
+3. Link the project (run from `frontend/` folder):
+   ```powershell
+   cd frontend
+   vercel link
+   ```
+
 ### Deploy Changes
+
+After making changes to the frontend:
 
 ```powershell
 cd frontend
@@ -115,32 +200,114 @@ vercel --prod          # Deploy to production
 vercel alias set <deployment-url> ed-sensor-dashboard.vercel.app
 ```
 
-### Set Backend URL
+### Set Backend URL (Environment Variable)
 
+The frontend needs to know where the backend is. Set this in Vercel:
+
+**Option 1: Via Vercel Dashboard**
+1. Go to https://vercel.com → Your Project → Settings → Environment Variables
+2. Add: `VITE_API_URL` = `https://your-tunnel-url.trycloudflare.com`
+3. Redeploy
+
+**Option 2: Via CLI**
 ```powershell
 cd frontend
 vercel env rm VITE_API_URL production -y
 echo "https://your-tunnel-url.trycloudflare.com" | vercel env add VITE_API_URL production
-vercel --prod
+vercel --prod  # Redeploy
 ```
 
-Note: The auto-start scripts handle this automatically!
+> **Note:** The auto-start scripts handle this automatically when the tunnel URL changes!
+
+---
+
+## Making Changes
+
+### Frontend Changes
+
+1. Edit files in `frontend/src/`
+2. Test locally:
+   ```powershell
+   cd frontend
+   npm run dev
+   ```
+3. Deploy:
+   ```powershell
+   npm run build
+   vercel --prod
+   vercel alias set <deployment-url> ed-sensor-dashboard.vercel.app
+   ```
+
+**Key files:**
+| File | Purpose |
+|------|---------|
+| `App.tsx` | Main UI component, tabs, sensor cards, modals |
+| `api.ts` | API calls to backend |
+| `index.css` | All styling |
+| `types.ts` | TypeScript interfaces |
+
+### Backend Changes
+
+1. Edit files in `backend/app/`
+2. Backend auto-reloads when using `--reload` flag (default in startup scripts)
+
+**Key files:**
+| File | Purpose |
+|------|---------|
+| `main.py` | CORS config, app startup |
+| `routers/sensors.py` | API endpoints |
+| `services/sensor_manager.py` | Sensor orchestration, scheduling |
+| `services/purple_air_service.py` | Purple Air data fetching |
+| `services/tempest_service.py` | Tempest data fetching |
+| `models/sensor.py` | Data models and types |
 
 ---
 
 ## Troubleshooting
 
-### Dashboard shows Disconnected
+### Dashboard shows "Disconnected"
 
-1. Is backend running? `curl http://localhost:8000/health`
-2. Is tunnel running? Check Task Manager for `cloudflared`
-3. Is `VITE_API_URL` correct? Check Vercel env vars
-4. Clear browser cache: `Ctrl + Shift + R`
+1. **Is backend running?**
+   ```powershell
+   curl http://localhost:8000/health
+   ```
+   Should return: `{"status":"healthy","polling_interval":60}`
 
-### Sensor shows Error
+2. **Is tunnel running?**
+   - Check if `cloudflared` process is active in Task Manager
+   - Try the tunnel URL directly in browser
 
-- Can backend reach sensor? `curl http://<sensor-ip>/json`
+3. **Is `VITE_API_URL` correct?**
+   - Check Vercel environment variables
+   - Must match your current tunnel URL
+   - Redeploy after changing
+
+4. **Browser cache?**
+   - Hard refresh: `Ctrl + Shift + R`
+   - Or try incognito window
+
+### Sensor shows "Error"
+
+- Can backend reach sensor? Try: `curl http://<sensor-ip>/json`
 - Is sensor on same network as backend computer?
+- Check `backend.log` for error details
+
+### Backend won't start (port in use)
+
+The startup scripts automatically kill existing processes, but if needed:
+```powershell
+# Find process using port 8000
+Get-NetTCPConnection -LocalPort 8000 | Select-Object OwningProcess
+# Kill it
+Stop-Process -Id <PID> -Force
+```
+
+### Changes not showing on dashboard
+
+1. Did you run `vercel --prod`?
+2. Did you set the alias? `vercel alias set <url> ed-sensor-dashboard.vercel.app`
+3. Clear browser cache
+4. Check Vercel deployment logs
 
 ---
 
@@ -150,14 +317,38 @@ Note: The auto-start scripts handle this automatically!
 |----------|--------|-------------|
 | `/health` | GET | Health check |
 | `/api/sensors/` | GET | List all sensors |
+| `/api/sensors/purple-air` | GET | List Purple Air sensors |
 | `/api/sensors/purple-air` | POST | Add Purple Air sensor |
+| `/api/sensors/tempest` | GET | List Tempest sensors |
 | `/api/sensors/tempest` | POST | Add Tempest sensor |
+| `/api/sensors/water-quality` | GET | List Water Quality sensors |
+| `/api/sensors/do-sensor` | GET | List DO sensors |
+| `/api/sensors/{id}` | GET | Get single sensor |
 | `/api/sensors/{id}` | DELETE | Delete sensor |
 | `/api/sensors/{id}/turn-on` | POST | Start polling |
 | `/api/sensors/{id}/turn-off` | POST | Stop polling |
 | `/api/sensors/{id}/fetch-now` | POST | Manual fetch |
 
-**Full API docs:** http://localhost:8000/docs
+**Full API docs:** http://localhost:8000/docs (when backend is running)
+
+---
+
+## Adding a New Sensor Type
+
+To add support for a new sensor type:
+
+1. **Backend:**
+   - Add enum value in `models/sensor.py` → `SensorType`
+   - Create request model `AddXxxSensorRequest`
+   - Create service in `services/xxx_service.py`
+   - Add endpoints in `routers/sensors.py`
+   - Update `sensor_manager.py` to handle the new type
+
+2. **Frontend:**
+   - Add type to `types.ts` → `SensorType`
+   - Add tab in `App.tsx` → `tabs` array
+   - Add API function in `api.ts`
+   - Update `isImplemented` check in `App.tsx`
 
 ---
 

@@ -23,9 +23,9 @@ Log "Starting backend server..."
 Log "Checking for existing processes on port 8000..."
 $existingProcesses = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
 if ($existingProcesses) {
-    foreach ($pid in $existingProcesses) {
-        Log "Killing existing process on port 8000 (PID: $pid)"
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+    foreach ($procId in $existingProcesses) {
+        Log "Killing existing process on port 8000 (PID: $procId)"
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
     }
     # Wait for port to be released
     Start-Sleep -Seconds 2
