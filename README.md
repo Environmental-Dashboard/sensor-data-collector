@@ -2,7 +2,7 @@
 
 A system for collecting environmental sensor data and uploading it to the cloud.
 
-**Live Dashboard:** https://ed-sensors-dashboard.vercel.app
+**Live Dashboard:** https://ed-sensor-dashboard.vercel.app
 
 ---
 
