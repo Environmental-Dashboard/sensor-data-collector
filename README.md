@@ -12,7 +12,7 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 |-------------|--------|-------------|
 | **Purple Air** | ✅ Ready | Air quality monitoring (PM2.5, temperature, humidity) |
 | **Tempest** | ✅ Ready | Weather station (temp, wind, rain, UV, lightning) |
-| **Water Quality** | 🚧 Coming Soon | Water quality monitoring |
+| **Water Quality** | ✅ Ready | Water quality monitoring via Ubidots |
 | **DO Sensor** | 🚧 Coming Soon | Dissolved oxygen monitoring |
 
 ---
