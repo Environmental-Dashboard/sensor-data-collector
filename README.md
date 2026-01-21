@@ -355,6 +355,83 @@ Stop-Process -Id <PID> -Force
 3. Clear browser cache
 4. Check Vercel deployment logs
 
+### Data not uploading to Community Hub
+
+**Symptoms:** Sensors show as "active" but no data appears in Community Hub data sources.
+
+1. **Test upload endpoint connectivity:**
+   ```powershell
+   curl "http://localhost:8000/api/sensors/health/upload-test?upload_token=YOUR_TOKEN"
+   ```
+   This tests if the backend can reach Community Hub and if your token is valid.
+
+2. **Check sensor diagnostics:**
+   ```powershell
+   curl "http://localhost:8000/api/sensors/{sensor_id}/diagnostics"
+   ```
+   Returns:
+   - Last upload attempt timestamp
+   - Last error details (HTTP status, error response)
+   - Last CSV sample sent
+   - Connectivity status (for Purple Air)
+
+3. **Check backend logs:**
+   - Look for `[SensorName] Uploading CSV` messages
+   - Check for HTTP error responses
+   - Verify CSV format matches Community Hub expectations
+
+4. **Common issues:**
+   - **Invalid token**: Token may have expired or been revoked
+   - **CSV format mismatch**: Headers must match exactly what Community Hub expects
+   - **Network connectivity**: Backend cannot reach `oberlin.communityhub.cloud`
+   - **Empty CSV**: Sensor returned no data (check sensor connectivity)
+
+5. **Verify CSV format:**
+   - Each sensor type has a specific CSV format
+   - Headers must match exactly (case-sensitive)
+   - Timestamp must be ISO 8601 UTC format
+   - See `backend/CSV_FORMAT.md` for details
+
+### Viewing Logs
+
+**Backend logs:**
+- Check `backend/backend.log` for detailed error messages
+- Logs include CSV previews, HTTP responses, and error details
+- Log level can be adjusted in `main.py`
+
+**Tunnel logs:**
+- Check `backend/tunnel.log` for Cloudflare Tunnel issues
+- Shows connection status and URL changes
+
+### Manual Upload Test
+
+Test uploading a CSV file directly:
+```powershell
+# Create a test CSV file
+$csv = "Timestamp,Temperature (°F),Humidity (%)\n2026-01-01T00:00:00+00:00,72.0,45.0"
+$csv | Out-File -FilePath test.csv -Encoding utf8
+
+# Upload it
+curl -X POST "https://oberlin.communityhub.cloud/api/data-hub/upload/csv" `
+  -H "user-token: YOUR_TOKEN" `
+  -F "file=@test.csv"
+```
+
+### Token Management
+
+**Getting tokens:**
+- Contact Community Hub team (Gaurav/Pratush) for upload tokens
+- Tokens are used to authenticate CSV uploads
+- Each sensor needs a unique token (or tokens can be reused)
+
+**Token format:**
+- Tokens look like: `8GJKOVeWT6aOXdWGv4udVP8uGIFOCi`
+- Sent in `user-token` header (not `Authorization: Bearer`)
+
+**Testing token validity:**
+- Use `/api/sensors/health/upload-test?upload_token=YOUR_TOKEN`
+- Returns success if token is valid and endpoint is reachable
+
 ---
 
 ## API Reference
@@ -374,6 +451,8 @@ Stop-Process -Id <PID> -Force
 | `/api/sensors/{id}/turn-on` | POST | Start polling |
 | `/api/sensors/{id}/turn-off` | POST | Stop polling |
 | `/api/sensors/{id}/fetch-now` | POST | Manual fetch |
+| `/api/sensors/{id}/diagnostics` | GET | Get sensor diagnostics |
+| `/api/sensors/health/upload-test` | GET | Test upload endpoint |
 
 **Full API docs:** http://localhost:8000/docs (when backend is running)
 

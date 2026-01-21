@@ -14,10 +14,13 @@ Author: Sensor Dashboard Team
 
 import httpx
 import io
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.models import WaterQualityReading
+
+logger = logging.getLogger(__name__)
 
 
 class WaterQualityService:
@@ -88,23 +91,69 @@ class WaterQualityService:
     
     async def push_to_endpoint(self, csv_data: str, sensor_name: str, upload_token: str) -> dict:
         """Upload the CSV data to the community hub cloud."""
+        # Validate CSV before upload
+        if not csv_data or not csv_data.strip():
+            error_msg = "CSV data is empty - cannot upload"
+            logger.error(f"[{sensor_name}] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Count rows (header + data)
+        row_count = len([line for line in csv_data.split('\n') if line.strip()])
+        csv_size = len(csv_data.encode('utf-8'))
+        
+        # Log CSV preview (first 500 chars) for debugging
+        csv_preview = csv_data[:500] + "..." if len(csv_data) > 500 else csv_data
+        logger.info(f"[{sensor_name}] Uploading CSV - Size: {csv_size} bytes, Rows: {row_count}")
+        logger.debug(f"[{sensor_name}] CSV preview:\n{csv_preview}")
+        
         headers = {"user-token": upload_token}
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         clean_name = "".join(c if c.isalnum() else "_" for c in sensor_name)
         filename = f"WQ_{clean_name}_{timestamp}.csv"
         
         csv_bytes = csv_data.encode("utf-8")
-        csv_file = io.BytesIO(csv_bytes)
-        files = {"file": (filename, csv_file, "text/csv")}
         
-        response = await self.http_client.post(self.UPLOAD_URL, headers=headers, files=files)
-        response.raise_for_status()
-        
-        return {
-            "status": "success",
-            "filename": filename,
-            "uploaded_at": datetime.now(timezone.utc).isoformat()
+        # Upload as RAW BODY (not multipart form data!)
+        # Community Hub expects: Content-Type: text/csv with raw CSV in body
+        upload_headers = {
+            "user-token": upload_token,
+            "Content-Type": "text/csv"
         }
+        
+        try:
+            response = await self.http_client.post(
+                self.UPLOAD_URL,
+                headers=upload_headers,
+                content=csv_bytes  # Raw body, not multipart
+            )
+            response.raise_for_status()
+            
+            logger.info(f"[{sensor_name}] Upload successful - Status: {response.status_code}, File: {filename}")
+            
+            return {
+                "status": "success",
+                "filename": filename,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "csv_size_bytes": csv_size,
+                "row_count": row_count
+            }
+        except httpx.HTTPStatusError as e:
+            # Log detailed error information
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except:
+                pass
+            
+            logger.error(
+                f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
+                f"Response: {error_body}\n"
+                f"CSV preview: {csv_preview}"
+            )
+            raise
+        except Exception as e:
+            logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
+            raise
     
     async def fetch_and_push(self, device_id: str, ubidots_token: str, sensor_name: str, upload_token: str) -> dict:
         """Fetch from Ubidots and upload to cloud."""
@@ -119,13 +168,31 @@ class WaterQualityService:
             
             return {"status": "success", "sensor_name": sensor_name, "reading": reading.model_dump(), "upload_result": upload_result}
         except httpx.HTTPStatusError as e:
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except:
+                pass
+            
             if e.response.status_code == 401:
                 error_msg = "Invalid Ubidots token"
             elif e.response.status_code == 404:
                 error_msg = "Device not found"
             else:
                 error_msg = f"HTTP error {e.response.status_code}"
-            return {"status": "error", "sensor_name": sensor_name, "error_type": "http_error", "error_message": error_msg}
+                if error_body:
+                    error_msg += f": {error_body}"
+            
+            logger.error(f"[{sensor_name}] Upload HTTP error: {error_msg}")
+            
+            return {
+                "status": "error",
+                "sensor_name": sensor_name,
+                "error_type": "http_error",
+                "error_message": error_msg,
+                "http_status": e.response.status_code,
+                "error_response": error_body
+            }
         except Exception as e:
             return {"status": "error", "sensor_name": sensor_name, "error_type": "unknown_error", "error_message": str(e)}
     

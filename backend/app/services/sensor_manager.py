@@ -102,21 +102,43 @@ class SensorManager:
             
             # Convert the data back to proper types
             for sensor_id, sensor in data.items():
-                # Convert string types back to enums
-                sensor["sensor_type"] = SensorType(sensor["sensor_type"])
-                sensor["status"] = SensorStatus(sensor["status"])
-                
-                # Convert datetime strings back to datetime objects
-                if sensor.get("last_active"):
-                    sensor["last_active"] = datetime.fromisoformat(sensor["last_active"])
-                if sensor.get("created_at"):
-                    sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
-                
-                self._sensors[sensor_id] = sensor
+                try:
+                    # Convert string types back to enums
+                    if isinstance(sensor.get("sensor_type"), str):
+                        sensor["sensor_type"] = SensorType(sensor["sensor_type"])
+                    if isinstance(sensor.get("status"), str):
+                        sensor["status"] = SensorStatus(sensor["status"])
+                    
+                    # Convert datetime strings back to datetime objects
+                    datetime_fields = ["last_active", "created_at", "last_upload_attempt"]
+                    for field in datetime_fields:
+                        if sensor.get(field) and isinstance(sensor[field], str):
+                            try:
+                                sensor[field] = datetime.fromisoformat(sensor[field].replace('Z', '+00:00'))
+                            except (ValueError, AttributeError) as e:
+                                print(f"Warning: Could not parse {field} for sensor {sensor_id}: {e}")
+                                sensor[field] = None
+                    
+                    # Ensure all required fields exist
+                    if "last_error_details" not in sensor:
+                        sensor["last_error_details"] = None
+                    if "last_csv_sample" not in sensor:
+                        sensor["last_csv_sample"] = None
+                    if "last_upload_attempt" not in sensor:
+                        sensor["last_upload_attempt"] = None
+                    if "battery_volts" not in sensor:
+                        sensor["battery_volts"] = None
+                    
+                    self._sensors[sensor_id] = sensor
+                except Exception as e:
+                    print(f"Error loading sensor {sensor_id}: {e}")
+                    continue
             
             print(f"Loaded {len(self._sensors)} sensors from database")
         except Exception as e:
             print(f"Error loading sensors database: {e}")
+            import traceback
+            traceback.print_exc()
     
     
     def _save_to_file(self):
@@ -187,6 +209,9 @@ class SensorManager:
             "is_active": False,
             "last_active": None,
             "last_error": None,
+            "last_error_details": None,  # Store detailed error info
+            "last_csv_sample": None,  # Store last CSV sent (truncated)
+            "last_upload_attempt": None,
             "created_at": now,
         }
         
@@ -220,6 +245,9 @@ class SensorManager:
             "is_active": False,
             "last_active": None,
             "last_error": None,
+            "last_error_details": None,  # Store detailed error info
+            "last_csv_sample": None,  # Store last CSV sent (truncated)
+            "last_upload_attempt": None,
             "created_at": now,
             "battery_volts": None,  # Will be updated when data is fetched
         }
@@ -280,6 +308,7 @@ class SensorManager:
         
         # Clear old error when turning on
         sensor["last_error"] = None
+        sensor["last_error_details"] = None
         
         # Start data collection based on sensor type
         if sensor["sensor_type"] == SensorType.PURPLE_AIR:
@@ -336,6 +365,10 @@ class SensorManager:
             "last_error": sensor["last_error"],
         }
     
+    def get_sensor_data(self, sensor_id: str) -> Optional[dict]:
+        """Get full internal sensor data (for diagnostics)."""
+        return self._sensors.get(sensor_id)
+    
     
     # =========================================================================
     # POLLING JOBS
@@ -369,6 +402,8 @@ class SensorManager:
         if not sensor:
             return
         
+        sensor["last_upload_attempt"] = datetime.now(timezone.utc).isoformat()
+        
         result = await self.purple_air_service.fetch_and_push(
             ip_address=sensor["ip_address"],
             sensor_name=sensor["name"],
@@ -379,9 +414,20 @@ class SensorManager:
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
+            sensor["last_error_details"] = None
+            # Store CSV sample from upload result if available
+            if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
+                sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message", "Unknown error")
+            # Store detailed error information
+            sensor["last_error_details"] = {
+                "error_type": result.get("error_type", "unknown"),
+                "http_status": result.get("http_status"),
+                "error_response": result.get("error_response"),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
         
         self._save_to_file()  # Persist status updates
     
@@ -402,19 +448,30 @@ class SensorManager:
         if not sensor:
             return
         
+        sensor["last_upload_attempt"] = datetime.now(timezone.utc).isoformat()
+        
         if result["status"] == "success":
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
+            sensor["last_error_details"] = None
+            # Store CSV sample from upload result if available
+            if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
+                sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
             # Store battery voltage from the reading
             reading = result.get("reading", {})
             if reading.get("battery_volts"):
                 sensor["battery_volts"] = reading["battery_volts"]
-            print(f"Tempest {device_id}: Data received and uploaded")
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message", "Unknown error")
-            print(f"Tempest {device_id}: Error - {sensor['last_error']}")
+            # Store detailed error information
+            sensor["last_error_details"] = {
+                "error_type": result.get("error_type", "unknown"),
+                "http_status": result.get("http_status"),
+                "error_response": result.get("error_response"),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
         
         self._save_to_file()  # Persist status updates
     
@@ -448,10 +505,16 @@ class SensorManager:
         else:
             return {"status": "error", "error_message": f"Unknown sensor type: {sensor['sensor_type']}"}
         
+        sensor["last_upload_attempt"] = datetime.now(timezone.utc).isoformat()
+        
         if result["status"] == "success":
             sensor["status"] = SensorStatus.ACTIVE
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
+            sensor["last_error_details"] = None
+            # Store CSV sample from upload result if available
+            if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
+                sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
             # Store battery voltage for Tempest sensors
             if sensor["sensor_type"] == SensorType.TEMPEST:
                 reading = result.get("reading", {})
@@ -460,6 +523,13 @@ class SensorManager:
         else:
             sensor["status"] = SensorStatus.ERROR
             sensor["last_error"] = result.get("error_message")
+            # Store detailed error information
+            sensor["last_error_details"] = {
+                "error_type": result.get("error_type", "unknown"),
+                "http_status": result.get("http_status"),
+                "error_response": result.get("error_response"),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
         
         self._save_to_file()  # Persist status updates
         

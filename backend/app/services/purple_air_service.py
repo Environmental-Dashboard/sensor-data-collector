@@ -39,9 +39,12 @@ Author: Frank Kusi Appiah
 
 import httpx
 import io
+import logging
 from datetime import datetime, timezone
 
 from app.models import PurpleAirReading
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -177,6 +180,12 @@ class PurpleAirService:
         CSV = Comma Separated Values
         It's a simple text format that spreadsheet programs can open.
         
+        Format matches Community Hub requirements:
+        - Header row with column names
+        - Data rows (one per reading)
+        - Unix line endings (\n)
+        - No trailing newline
+        
         Args:
             reading: The data to convert
             include_header: Add column names at the top? (usually yes)
@@ -193,7 +202,10 @@ class PurpleAirService:
         
         lines.append(reading.to_csv_row())
         
-        return "\n".join(lines)
+        # Join with \n and ensure no trailing newline (matches Community Hub format)
+        csv_content = "\n".join(lines)
+        # Remove any trailing whitespace/newlines
+        return csv_content.rstrip()
     
     
     async def push_to_endpoint(self, csv_data: str, sensor_name: str, upload_token: str) -> dict:
@@ -215,6 +227,22 @@ class PurpleAirService:
                 "uploaded_at": "2026-01-06T03:00:01"
             }
         """
+        # Validate CSV before upload
+        if not csv_data or not csv_data.strip():
+            error_msg = "CSV data is empty - cannot upload"
+            logger.error(f"[{sensor_name}] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Count rows (header + data)
+        row_count = len([line for line in csv_data.split('\n') if line.strip()])
+        csv_size = len(csv_data.encode('utf-8'))
+        
+        # Log CSV preview (first 500 chars) for debugging
+        csv_preview = csv_data[:500] + "..." if len(csv_data) > 500 else csv_data
+        logger.info(f"[{sensor_name}] Uploading CSV - Size: {csv_size} bytes, Rows: {row_count}")
+        logger.info(f"[{sensor_name}] CSV content (full):\n{csv_data}")
+        logger.debug(f"[{sensor_name}] CSV preview:\n{csv_preview}")
+        
         # Set up the authentication header
         # The API expects "user-token" header (not Bearer token)
         headers = {
@@ -227,27 +255,64 @@ class PurpleAirService:
         clean_name = "".join(c if c.isalnum() else "_" for c in sensor_name)
         filename = f"{clean_name}_{timestamp}.csv"
         
-        # Turn our CSV string into a file-like object
+        # Encode CSV as UTF-8 for upload
         csv_bytes = csv_data.encode("utf-8")
-        csv_file = io.BytesIO(csv_bytes)
         
-        # Upload as a file
-        files = {
-            "file": (filename, csv_file, "text/csv")
+        # Verify file is not empty
+        if len(csv_bytes) == 0:
+            error_msg = "CSV bytes are empty after encoding"
+            logger.error(f"[{sensor_name}] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Log the actual bytes being sent (first 200 bytes)
+        logger.debug(f"[{sensor_name}] CSV bytes (first 200): {csv_bytes[:200]}")
+        logger.debug(f"[{sensor_name}] CSV bytes length: {len(csv_bytes)}")
+        
+        # Upload as RAW BODY (not multipart form data!)
+        # Community Hub expects: Content-Type: text/csv with raw CSV in body
+        upload_headers = {
+            "user-token": upload_token,
+            "Content-Type": "text/csv"
         }
         
-        response = await self.http_client.post(
-            self.UPLOAD_URL,
-            headers=headers,
-            files=files
-        )
-        response.raise_for_status()
-        
-        return {
-            "status": "success",
-            "filename": filename,
-            "uploaded_at": datetime.now(timezone.utc).isoformat()
-        }
+        try:
+            # Log request details
+            logger.debug(f"[{sensor_name}] Uploading to: {self.UPLOAD_URL}")
+            logger.debug(f"[{sensor_name}] File size: {len(csv_bytes)} bytes")
+            
+            response = await self.http_client.post(
+                self.UPLOAD_URL,
+                headers=upload_headers,
+                content=csv_bytes  # Raw body, not multipart
+            )
+            response.raise_for_status()
+            
+            logger.info(f"[{sensor_name}] Upload successful - Status: {response.status_code}, File: {filename}")
+            
+            return {
+                "status": "success",
+                "filename": filename,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "csv_size_bytes": csv_size,
+                "row_count": row_count
+            }
+        except httpx.HTTPStatusError as e:
+            # Log detailed error information
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]  # First 500 chars of error response
+            except:
+                pass
+            
+            logger.error(
+                f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
+                f"Response: {error_body}\n"
+                f"CSV preview: {csv_preview}"
+            )
+            raise
+        except Exception as e:
+            logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
+            raise
     
     
     async def fetch_and_push(self, ip_address: str, sensor_name: str, upload_token: str) -> dict:
@@ -293,8 +358,10 @@ class PurpleAirService:
             # Step 3: Convert to CSV
             csv_data = self.convert_to_csv(reading, include_header=True)
             
-            # Step 4: Upload to cloud
+            # Step 4: Upload to cloud (returns CSV sample in result)
             upload_result = await self.push_to_endpoint(csv_data, sensor_name, upload_token)
+            # Store CSV sample in upload result for diagnostics
+            upload_result["csv_sample"] = csv_data[:500]  # First 500 chars
             
             # All good!
             return {
@@ -322,11 +389,27 @@ class PurpleAirService:
             }
         except httpx.HTTPStatusError as e:
             # Got a response but it was an error
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except:
+                pass
+            
+            error_msg = f"HTTP error {e.response.status_code}"
+            if error_body:
+                error_msg += f": {error_body}"
+            else:
+                error_msg += ". Check if the upload token is correct."
+            
+            logger.error(f"[{sensor_name}] Upload HTTP error: {error_msg}")
+            
             return {
                 "status": "error",
                 "sensor_name": sensor_name,
                 "error_type": "http_error",
-                "error_message": f"HTTP error {e.response.status_code}. Check if the upload token is correct."
+                "error_message": error_msg,
+                "http_status": e.response.status_code,
+                "error_response": error_body
             }
         except Exception as e:
             # Something else went wrong

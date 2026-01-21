@@ -15,6 +15,7 @@ Authentication:
 import asyncio
 import json
 import io
+import logging
 from datetime import datetime, timezone
 from typing import Callable, Optional
 import httpx
@@ -26,6 +27,8 @@ except ImportError:
 
 
 from app.models import TempestReading
+
+logger = logging.getLogger(__name__)
 
 
 class TempestService:
@@ -64,14 +67,14 @@ class TempestService:
             on_data_callback: Async callback function(device_id, result_dict)
         """
         if websockets is None:
-            print(f"ERROR: websockets library not installed. Run: pip install websockets")
+            logger.error(f"[Tempest {device_id}] websockets library not installed. Run: pip install websockets")
             return
         
         if device_id in self._listeners and not self._listeners[device_id].done():
-            print(f"Listener for Tempest device {device_id} already running.")
+            logger.warning(f"[Tempest {device_id}] Listener already running.")
             return
         
-        print(f"Starting cloud WebSocket listener for Tempest device: {device_id}")
+        logger.info(f"[Tempest {device_id}] Starting cloud WebSocket listener...")
         
         # Create stop event for this device
         stop_event = asyncio.Event()
@@ -98,7 +101,7 @@ class TempestService:
         if device_id in self._listeners:
             self._listeners[device_id].cancel()
             del self._listeners[device_id]
-            print(f"Stopped WebSocket listener for Tempest device: {device_id}")
+            logger.info(f"[Tempest {device_id}] Stopped WebSocket listener")
         
         if device_id in self._stop_events:
             del self._stop_events[device_id]
@@ -121,10 +124,10 @@ class TempestService:
         
         while not stop_event.is_set():
             try:
-                print(f"Connecting to Tempest cloud for device {device_id}...")
+                logger.info(f"[Tempest {device_id}] Connecting to Tempest cloud WebSocket...")
                 
                 async with websockets.connect(ws_url, ping_interval=30) as ws:
-                    print(f"Connected! Subscribing to device {device_id}...")
+                    logger.info(f"[Tempest {device_id}] WebSocket connected! Subscribing to device...")
                     
                     # Send listen_start message
                     listen_msg = {
@@ -133,7 +136,7 @@ class TempestService:
                         "id": f"sensor-collector-{device_id}"
                     }
                     await ws.send(json.dumps(listen_msg))
-                    print(f"Subscribed to Tempest device {device_id}. Waiting for data...")
+                    logger.info(f"[Tempest {device_id}] Subscription message sent. Waiting for data...")
                     
                     # Listen for messages
                     while not stop_event.is_set():
@@ -146,7 +149,7 @@ class TempestService:
                             
                             # Handle observation data (obs_st = station observation)
                             if msg_type == "obs_st":
-                                print(f"Received observation from Tempest {device_id}")
+                                logger.info(f"[Tempest {device_id}] Received observation data")
                                 await self._process_and_push(
                                     raw_data=data,
                                     device_id=device_id,
@@ -157,27 +160,31 @@ class TempestService:
                             
                             # Handle acknowledgment
                             elif msg_type == "ack":
-                                print(f"Tempest {device_id}: Subscription acknowledged")
+                                logger.debug(f"[Tempest {device_id}] Subscription acknowledged")
                             
                             # Handle connection ready
                             elif msg_type == "connection_opened":
-                                print(f"Tempest {device_id}: Connection opened")
+                                logger.info(f"[Tempest {device_id}] Connection opened")
+                            
+                            # Log other message types for debugging
+                            else:
+                                logger.debug(f"[Tempest {device_id}] Received message type: {msg_type}")
                             
                         except asyncio.TimeoutError:
                             # No message received, just continue (allows checking stop_event)
                             continue
                         except asyncio.CancelledError:
-                            print(f"Tempest {device_id}: Listener cancelled")
+                            logger.info(f"[Tempest {device_id}] Listener cancelled")
                             return
                             
             except websockets.exceptions.ConnectionClosed as e:
-                print(f"Tempest {device_id}: Connection closed ({e}). Reconnecting in 10s...")
+                logger.warning(f"[Tempest {device_id}] WebSocket connection closed ({e}). Reconnecting in 10s...")
                 await asyncio.sleep(10)
             except Exception as e:
-                print(f"Tempest {device_id}: Error ({e}). Reconnecting in 10s...")
+                logger.error(f"[Tempest {device_id}] WebSocket error ({e}). Reconnecting in 10s...")
                 await asyncio.sleep(10)
         
-        print(f"Tempest {device_id}: Listener stopped")
+        logger.info(f"[Tempest {device_id}] Listener stopped")
     
     async def _process_and_push(
         self,
@@ -192,6 +199,8 @@ class TempestService:
             reading = self.parse_sensor_response(raw_data)
             csv_data = self.convert_to_csv(reading, include_header=True)
             upload_result = await self.push_to_endpoint(csv_data, sensor_name, upload_token)
+            # Store CSV sample in upload result for diagnostics
+            upload_result["csv_sample"] = csv_data[:500]  # First 500 chars
             
             result = {
                 "status": "success",
@@ -200,15 +209,29 @@ class TempestService:
                 "upload_result": upload_result
             }
             
-            print(f"Tempest {device_id}: Data uploaded successfully")
+            logger.info(f"[Tempest {device_id}] Data uploaded successfully")
             await on_data_callback(device_id, result)
             
         except httpx.HTTPStatusError as e:
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except:
+                pass
+            
+            error_msg = f"Upload failed: HTTP {e.response.status_code}"
+            if error_body:
+                error_msg += f" - {error_body}"
+            
+            logger.error(f"[Tempest {device_id}] Upload HTTP error: {error_msg}")
+            
             result = {
                 "status": "error",
                 "sensor_name": sensor_name,
                 "error_type": "upload_error",
-                "error_message": f"Upload failed: HTTP {e.response.status_code}"
+                "error_message": error_msg,
+                "http_status": e.response.status_code,
+                "error_response": error_body
             }
             await on_data_callback(device_id, result)
         except Exception as e:
@@ -327,6 +350,21 @@ class TempestService:
     
     async def push_to_endpoint(self, csv_data: str, sensor_name: str, upload_token: str) -> dict:
         """Upload CSV data to Community Hub."""
+        # Validate CSV before upload
+        if not csv_data or not csv_data.strip():
+            error_msg = "CSV data is empty - cannot upload"
+            logger.error(f"[{sensor_name}] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Count rows (header + data)
+        row_count = len([line for line in csv_data.split('\n') if line.strip()])
+        csv_size = len(csv_data.encode('utf-8'))
+        
+        # Log CSV preview (first 500 chars) for debugging
+        csv_preview = csv_data[:500] + "..." if len(csv_data) > 500 else csv_data
+        logger.info(f"[{sensor_name}] Uploading CSV - Size: {csv_size} bytes, Rows: {row_count}")
+        logger.debug(f"[{sensor_name}] CSV preview:\n{csv_preview}")
+        
         headers = {"user-token": upload_token}
         
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -334,18 +372,48 @@ class TempestService:
         filename = f"{clean_name}_{timestamp}.csv"
         
         csv_bytes = csv_data.encode("utf-8")
-        csv_file = io.BytesIO(csv_bytes)
         
-        files = {"file": (filename, csv_file, "text/csv")}
-        
-        response = await self.http_client.post(self.UPLOAD_URL, headers=headers, files=files)
-        response.raise_for_status()
-        
-        return {
-            "status": "success",
-            "filename": filename,
-            "uploaded_at": datetime.now(timezone.utc).isoformat()
+        # Upload as RAW BODY (not multipart form data!)
+        # Community Hub expects: Content-Type: text/csv with raw CSV in body
+        upload_headers = {
+            "user-token": upload_token,
+            "Content-Type": "text/csv"
         }
+        
+        try:
+            response = await self.http_client.post(
+                self.UPLOAD_URL,
+                headers=upload_headers,
+                content=csv_bytes  # Raw body, not multipart
+            )
+            response.raise_for_status()
+            
+            logger.info(f"[{sensor_name}] Upload successful - Status: {response.status_code}, File: {filename}")
+            
+            return {
+                "status": "success",
+                "filename": filename,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "csv_size_bytes": csv_size,
+                "row_count": row_count
+            }
+        except httpx.HTTPStatusError as e:
+            # Log detailed error information
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except:
+                pass
+            
+            logger.error(
+                f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
+                f"Response: {error_body}\n"
+                f"CSV preview: {csv_preview}"
+            )
+            raise
+        except Exception as e:
+            logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
+            raise
     
     async def test_connection(self, device_id: str, api_token: str) -> dict:
         """
