@@ -342,6 +342,22 @@ async def get_sensor_status(sensor_id: str, manager = Depends(get_sensor_manager
     return status
 
 
+@router.get("/{sensor_id}/last-data")
+async def get_last_sent_data(sensor_id: str, manager = Depends(get_sensor_manager)):
+    """
+    Get the last data we generated/sent for this sensor (diagnostics).
+
+    Returns:
+    - last_csv_sample (if available)
+    - last_upload_attempt
+    - last_error / last_error_details
+    """
+    data = manager.get_last_sent_data(sensor_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    return data
+
+
 @router.post("/{sensor_id}/turn-on", response_model=SensorResponse)
 async def turn_on_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
     """

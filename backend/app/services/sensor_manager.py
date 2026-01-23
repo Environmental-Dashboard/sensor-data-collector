@@ -303,6 +303,31 @@ class SensorManager:
             sensors = [s for s in sensors if s["sensor_type"] == sensor_type]
         
         return [SensorResponse(**{k: v for k, v in s.items() if k != "upload_token"}) for s in sensors]
+
+
+    def get_last_sent_data(self, sensor_id: str) -> Optional[dict]:
+        """
+        Get the last data we generated/sent for a sensor.
+
+        This is meant for UI diagnostics like "Last Sent Data".
+        Returns None if sensor doesn't exist.
+        """
+        sensor = self._sensors.get(sensor_id)
+        if not sensor:
+            return None
+
+        return {
+            "sensor_id": sensor_id,
+            "sensor_name": sensor.get("name"),
+            "sensor_type": str(sensor.get("sensor_type")),
+            "last_upload_attempt": sensor.get("last_upload_attempt"),
+            "last_active": sensor.get("last_active").isoformat() if sensor.get("last_active") else None,
+            "last_error": sensor.get("last_error"),
+            "status": str(sensor.get("status")),
+            "status_reason": sensor.get("status_reason"),
+            "last_csv_sample": sensor.get("last_csv_sample"),
+            "last_error_details": sensor.get("last_error_details"),
+        }
     
     
     def delete_sensor(self, sensor_id: str) -> bool:
