@@ -272,3 +272,4 @@ Full API docs: `http://localhost:8000/docs`
 ## Credits
 
 - Frank Kusi Appiah
+- Menard Simoya
