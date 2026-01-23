@@ -61,7 +61,7 @@ export const setRelayMode = (voltageMeter: string, mode: 'auto' | 'on' | 'off') 
 
 // Get last sent data for a sensor
 export const getLastSentData = (id: string) =>
-  api<{ sensor_id: string; last_csv: string | null; last_upload: string | null }>(`/api/sensors/${id}/last-data`);
+  api<{ sensor_id: string; last_csv_sample: string | null; last_upload_attempt: string | null }>(`/api/sensors/${id}/last-data`);
 
 // Update sensor settings
 export const updateSensor = (id: string, data: { name?: string; location?: string; ip_address?: string; linked_sensor_id?: string }) =>

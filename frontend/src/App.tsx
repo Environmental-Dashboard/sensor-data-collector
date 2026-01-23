@@ -242,7 +242,7 @@ export default function App() {
   const handleViewLastData = async (sensor: Sensor) => {
     try {
       const result = await api.getLastSentData(sensor.id);
-      setLastDataModal({ open: true, sensor, data: result.last_csv || 'No data sent yet' });
+      setLastDataModal({ open: true, sensor, data: result.last_csv_sample || 'No data sent yet' });
     } catch (e: any) {
       showToast('error', 'Failed to get last sent data');
     }
