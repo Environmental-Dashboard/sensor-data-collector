@@ -58,6 +58,7 @@ from app.models import (
     AddWaterQualitySensorRequest,
     AddDOSensorRequest,
     AddVoltageMeterRequest,
+    UpdateSensorRequest,
     SensorResponse,
     SensorListResponse,
     PowerMode,
@@ -328,6 +329,31 @@ async def delete_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
     return {"status": "deleted", "sensor_id": sensor_id, "message": "Sensor has been removed"}
 
 
+@router.put("/{sensor_id}", response_model=SensorResponse)
+async def update_sensor(sensor_id: str, request: UpdateSensorRequest, manager = Depends(get_sensor_manager)):
+    """
+    Update a sensor's settings.
+    
+    You can update:
+    - name: A new friendly name
+    - location: New location description
+    - ip_address: New IP address
+    - linked_sensor_id: Link to a different sensor (voltage meters)
+    """
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    
+    # Update allowed fields
+    updates = request.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        if value is not None and hasattr(sensor, key):
+            setattr(sensor, key, value)
+    
+    manager._save_sensors()
+    return sensor
+
+
 @router.get("/{sensor_id}/status")
 async def get_sensor_status(sensor_id: str, manager = Depends(get_sensor_manager)):
     """
@@ -457,6 +483,60 @@ async def control_voltage_meter_relay(
         "status": "ok",
         "sensor_id": sensor_id,
         "mode": mode,
+        "ip_address": vm_ip,
+    }
+
+
+class ThresholdsRequest(BaseModel):
+    """
+    Request body for updating voltage meter thresholds.
+    
+    cutoff: Voltage below which relay turns OFF (e.g., 11.0V)
+    reconnect: Voltage above which relay turns ON again (e.g., 12.6V)
+    """
+    cutoff: float
+    reconnect: float
+
+
+@router.post("/voltage-meter/{sensor_id}/thresholds")
+async def set_voltage_meter_thresholds(
+    sensor_id: str,
+    body: ThresholdsRequest,
+    manager = Depends(get_sensor_manager),
+):
+    """
+    Set voltage thresholds for automatic relay control.
+    
+    When auto mode is enabled:
+    - Relay turns OFF when voltage drops below cutoff
+    - Relay turns ON when voltage rises above reconnect
+    """
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Voltage meter not found")
+    
+    if sensor.sensor_type != SensorType.VOLTAGE_METER:
+        raise HTTPException(status_code=400, detail="Thresholds only valid for voltage_meter sensors")
+    
+    vm_ip = sensor.ip_address
+    if not vm_ip:
+        raise HTTPException(status_code=400, detail="Voltage meter has no IP address configured")
+    
+    vm_service = manager.voltage_meter_service
+    
+    try:
+        ok = await vm_service.set_thresholds(vm_ip, body.cutoff, body.reconnect)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
+    
+    if not ok:
+        raise HTTPException(status_code=502, detail="Voltage meter did not accept thresholds")
+    
+    return {
+        "status": "ok",
+        "sensor_id": sensor_id,
+        "cutoff": body.cutoff,
+        "reconnect": body.reconnect,
         "ip_address": vm_ip,
     }
 

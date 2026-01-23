@@ -58,3 +58,15 @@ export const setPollingFrequency = (id: string, minutes: number) =>
 // Voltage Meter relay control
 export const setRelayMode = (voltageMeter: string, mode: 'auto' | 'on' | 'off') =>
   api<any>(`/api/sensors/voltage-meter/${voltageMeter}/relay`, { method: 'POST', body: JSON.stringify({ mode }) });
+
+// Get last sent data for a sensor
+export const getLastSentData = (id: string) =>
+  api<{ sensor_id: string; last_csv: string | null; last_upload: string | null }>(`/api/sensors/${id}/last-data`);
+
+// Update sensor settings
+export const updateSensor = (id: string, data: { name?: string; location?: string; ip_address?: string; linked_sensor_id?: string }) =>
+  api<Sensor>(`/api/sensors/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+// Set voltage meter thresholds
+export const setThresholds = (id: string, cutoff: number, reconnect: number) =>
+  api<any>(`/api/sensors/voltage-meter/${id}/thresholds`, { method: 'POST', body: JSON.stringify({ cutoff, reconnect }) });

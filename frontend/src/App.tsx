@@ -3,7 +3,8 @@ import {
   Wind, CloudSun, Droplets, Database, Zap,
   Plus, Power, PowerOff, Play, Trash2, X,
   Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2,
-  Sun, Moon, Battery, Cloud, Sunrise
+  Sun, Moon, Battery, Cloud, Sunrise, Settings, MoreVertical,
+  Edit, Link, RefreshCw, Eye
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
 import * as api from './api';
@@ -81,6 +82,11 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  
+  // Modal states for sensor options
+  const [lastDataModal, setLastDataModal] = useState<{ open: boolean; sensor: Sensor | null; data: string | null }>({ open: false, sensor: null, data: null });
+  const [editModal, setEditModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
+  const [thresholdsModal, setThresholdsModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
 
   // Toast helpers
   const showToast = useCallback((type: 'success' | 'error', message: string) => {
@@ -232,6 +238,56 @@ export default function App() {
     setActionLoading(null);
   };
 
+  // View last sent data
+  const handleViewLastData = async (sensor: Sensor) => {
+    try {
+      const result = await api.getLastSentData(sensor.id);
+      setLastDataModal({ open: true, sensor, data: result.last_csv || 'No data sent yet' });
+    } catch (e: any) {
+      showToast('error', 'Failed to get last sent data');
+    }
+  };
+
+  // Open edit sensor modal
+  const handleEditSensor = (sensor: Sensor) => {
+    setEditModal({ open: true, sensor });
+  };
+
+  // Save edited sensor
+  const handleSaveEdit = async (sensor: Sensor, updates: { name?: string; location?: string; ip_address?: string }) => {
+    setActionLoading(sensor.id);
+    try {
+      await api.updateSensor(sensor.id, updates);
+      showToast('success', 'Sensor updated');
+      setEditModal({ open: false, sensor: null });
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to update sensor';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
+  // Open thresholds modal
+  const handleSetThresholds = (sensor: Sensor) => {
+    setThresholdsModal({ open: true, sensor });
+  };
+
+  // Save thresholds
+  const handleSaveThresholds = async (sensor: Sensor, cutoff: number, reconnect: number) => {
+    setActionLoading(sensor.id);
+    try {
+      await api.setThresholds(sensor.id, cutoff, reconnect);
+      showToast('success', 'Thresholds updated');
+      setThresholdsModal({ open: false, sensor: null });
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to set thresholds';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
   const handleAddSensor = async (data: AddPurpleAirRequest | AddTempestRequest) => {
     try {
       if (activeTab === 'purple_air') {
@@ -367,7 +423,11 @@ export default function App() {
                     onRelayControl={sensor.sensor_type === 'voltage_meter' ? (mode) => handleRelayControl(sensor, mode) : undefined}
                     onPowerModeChange={sensor.sensor_type === 'purple_air' ? (mode) => handlePowerModeChange(sensor, mode) : undefined}
                     onFrequencyChange={sensor.sensor_type === 'purple_air' ? (minutes) => handleFrequencyChange(sensor, minutes) : undefined}
+                    onViewLastData={() => handleViewLastData(sensor)}
+                    onEditSensor={() => handleEditSensor(sensor)}
+                    onSetThresholds={sensor.sensor_type === 'voltage_meter' ? () => handleSetThresholds(sensor) : undefined}
                     relayLoading={actionLoading === sensor.id}
+                    voltageMeterSensors={sensors.filter(s => s.sensor_type === 'voltage_meter' && !s.linked_sensor_id)}
                   />
                 ))}
               </div>
@@ -382,6 +442,42 @@ export default function App() {
           type={activeTab}
           onClose={() => setModalOpen(false)}
           onSubmit={handleAddSensor}
+        />
+      )}
+
+      {/* Last Data Modal */}
+      {lastDataModal.open && lastDataModal.sensor && (
+        <div className="modal-overlay" onClick={() => setLastDataModal({ open: false, sensor: null, data: null })}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Last Sent Data</h2>
+              <button className="modal-close" onClick={() => setLastDataModal({ open: false, sensor: null, data: null })}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <p className="form-hint" style={{marginBottom: '12px'}}>{lastDataModal.sensor.name}</p>
+              <pre className="data-preview">{lastDataModal.data}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Sensor Modal */}
+      {editModal.open && editModal.sensor && (
+        <EditSensorModal
+          sensor={editModal.sensor}
+          onClose={() => setEditModal({ open: false, sensor: null })}
+          onSave={(updates) => handleSaveEdit(editModal.sensor!, updates)}
+          loading={actionLoading === editModal.sensor.id}
+        />
+      )}
+
+      {/* Thresholds Modal */}
+      {thresholdsModal.open && thresholdsModal.sensor && (
+        <ThresholdsModal
+          sensor={thresholdsModal.sensor}
+          onClose={() => setThresholdsModal({ open: false, sensor: null })}
+          onSave={(cutoff, reconnect) => handleSaveThresholds(thresholdsModal.sensor!, cutoff, reconnect)}
+          loading={actionLoading === thresholdsModal.sensor.id}
         />
       )}
 
@@ -411,11 +507,17 @@ interface SensorCardProps {
   onRelayControl?: (mode: 'auto' | 'on' | 'off') => void;
   onPowerModeChange?: (mode: 'normal' | 'power_saving') => void;
   onFrequencyChange?: (minutes: number) => void;
+  onViewLastData?: () => void;
+  onEditSensor?: () => void;
+  onSetThresholds?: () => void;
   relayLoading?: boolean;
+  voltageMeterSensors?: Sensor[];
+  onLinkVoltageMeter?: (voltageMeterI: string) => void;
 }
 
-function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, relayLoading }: SensorCardProps) {
+function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, relayLoading, voltageMeterSensors, onLinkVoltageMeter }: SensorCardProps) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   return (
     <div className={`sensor-card ${sensor.status}`}>
       <div className="sensor-card-header">
@@ -523,50 +625,92 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <Play size={16} /> Ping
           </button>
         )}
-        {/* Settings button for Purple Air with power mode */}
-        {sensor.sensor_type === 'purple_air' && onPowerModeChange && (
+        {/* Settings button (gear) for sensors with settings */}
+        {(sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'voltage_meter') && (
           <button className="btn btn-icon" onClick={() => setShowSettings(!showSettings)} title="Settings">
-            <Zap size={16} />
+            <Settings size={16} />
           </button>
         )}
-        <button className="btn btn-icon btn-danger" onClick={onDelete} disabled={loading}>
-          <Trash2 size={16} />
-        </button>
+        {/* Three-dot options menu */}
+        <div className="menu-container">
+          <button className="btn btn-icon" onClick={() => setShowMenu(!showMenu)} title="More options">
+            <MoreVertical size={16} />
+          </button>
+          {showMenu && (
+            <div className="dropdown-menu" onClick={() => setShowMenu(false)}>
+              {onViewLastData && (
+                <button className="dropdown-item" onClick={onViewLastData}>
+                  <Eye size={14} /> View Last Sent Data
+                </button>
+              )}
+              {onEditSensor && (
+                <button className="dropdown-item" onClick={onEditSensor}>
+                  <Edit size={14} /> Edit Sensor
+                </button>
+              )}
+              {sensor.sensor_type === 'purple_air' && voltageMeterSensors && voltageMeterSensors.length > 0 && (
+                <button className="dropdown-item" onClick={() => onLinkVoltageMeter?.(voltageMeterSensors[0].id)}>
+                  <Link size={14} /> Link Battery Monitor
+                </button>
+              )}
+              {sensor.sensor_type === 'voltage_meter' && onSetThresholds && (
+                <button className="dropdown-item" onClick={onSetThresholds}>
+                  <Battery size={14} /> Set Thresholds
+                </button>
+              )}
+              <button className="dropdown-item" onClick={onFetchNow}>
+                <RefreshCw size={14} /> Refresh Now
+              </button>
+              <div className="dropdown-divider" />
+              <button className="dropdown-item danger" onClick={onDelete}>
+                <Trash2 size={14} /> Delete Sensor
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Relay Control for Voltage Meters */}
-      {sensor.sensor_type === 'voltage_meter' && onRelayControl && (
-        <div className="relay-control">
-          <div className="relay-control-header">
-            <Zap size={14} />
-            <span>Relay Control</span>
+      {/* Voltage Meter Settings */}
+      {showSettings && sensor.sensor_type === 'voltage_meter' && onRelayControl && (
+        <div className="sensor-settings">
+          <div className="settings-section">
+            <div className="settings-label">
+              <Power size={12} /> Relay Control
+            </div>
+            <div className="relay-buttons">
+              <button 
+                className="btn btn-sm" 
+                onClick={() => onRelayControl('auto')}
+                disabled={relayLoading}
+                title="Let the voltage meter decide based on battery thresholds"
+              >
+                Automatic
+              </button>
+              <button 
+                className="btn btn-sm btn-success" 
+                onClick={() => onRelayControl('on')}
+                disabled={relayLoading}
+                title="Force the relay ON (power the sensor)"
+              >
+                Force ON
+              </button>
+              <button 
+                className="btn btn-sm btn-danger" 
+                onClick={() => onRelayControl('off')}
+                disabled={relayLoading}
+                title="Force the relay OFF (cut power)"
+              >
+                Force OFF
+              </button>
+            </div>
           </div>
-          <div className="relay-buttons">
-            <button 
-              className="btn btn-sm" 
-              onClick={() => onRelayControl('auto')}
-              disabled={relayLoading}
-              title="Let the voltage meter decide based on battery thresholds"
-            >
-              Automatic
-            </button>
-            <button 
-              className="btn btn-sm btn-success" 
-              onClick={() => onRelayControl('on')}
-              disabled={relayLoading}
-              title="Force the relay ON (power the sensor)"
-            >
-              Force ON
-            </button>
-            <button 
-              className="btn btn-sm btn-danger" 
-              onClick={() => onRelayControl('off')}
-              disabled={relayLoading}
-              title="Force the relay OFF (cut power)"
-            >
-              Force OFF
-            </button>
-          </div>
+          {onSetThresholds && (
+            <div className="settings-section">
+              <button className="btn btn-sm" onClick={onSetThresholds} style={{width: '100%'}}>
+                <Battery size={14} /> Configure Battery Thresholds
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -756,6 +900,155 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? <Loader2 size={16} className="spinner" /> : <Plus size={16} />}
               Add Sensor
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Edit Sensor Modal
+interface EditSensorModalProps {
+  sensor: Sensor;
+  onClose: () => void;
+  onSave: (updates: { name?: string; location?: string; ip_address?: string }) => void;
+  loading: boolean;
+}
+
+function EditSensorModal({ sensor, onClose, onSave, loading }: EditSensorModalProps) {
+  const [name, setName] = useState(sensor.name);
+  const [location, setLocation] = useState(sensor.location);
+  const [ipAddress, setIpAddress] = useState(sensor.ip_address || '');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updates: { name?: string; location?: string; ip_address?: string } = {};
+    if (name !== sensor.name) updates.name = name;
+    if (location !== sensor.location) updates.location = location;
+    if (ipAddress !== (sensor.ip_address || '')) updates.ip_address = ipAddress;
+    onSave(updates);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Edit Sensor</h2>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Name</label>
+              <input
+                type="text"
+                className="form-input"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Location</label>
+              <input
+                type="text"
+                className="form-input"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            {sensor.ip_address && (
+              <div className="form-group">
+                <label className="form-label">IP Address</label>
+                <input
+                  type="text"
+                  className="form-input mono"
+                  value={ipAddress}
+                  onChange={e => setIpAddress(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? <Loader2 size={16} className="spinner" /> : <CheckCircle size={16} />}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Thresholds Modal for Voltage Meter
+interface ThresholdsModalProps {
+  sensor: Sensor;
+  onClose: () => void;
+  onSave: (cutoff: number, reconnect: number) => void;
+  loading: boolean;
+}
+
+function ThresholdsModal({ sensor, onClose, onSave, loading }: ThresholdsModalProps) {
+  const [cutoff, setCutoff] = useState('11.0');
+  const [reconnect, setReconnect] = useState('12.6');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(parseFloat(cutoff), parseFloat(reconnect));
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Battery Thresholds</h2>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <p className="form-hint" style={{marginBottom: '20px'}}>
+              Configure thresholds for <strong>{sensor.name}</strong>.
+              The relay turns off (cutoff) and back on (reconnect) based on battery voltage.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Cutoff Voltage (V)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="10"
+                max="14"
+                className="form-input mono"
+                value={cutoff}
+                onChange={e => setCutoff(e.target.value)}
+                disabled={loading}
+              />
+              <p className="form-hint">Relay turns OFF when battery drops below this</p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reconnect Voltage (V)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="10"
+                max="14"
+                className="form-input mono"
+                value={reconnect}
+                onChange={e => setReconnect(e.target.value)}
+                disabled={loading}
+              />
+              <p className="form-hint">Relay turns ON when battery rises above this</p>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? <Loader2 size={16} className="spinner" /> : <Battery size={16} />}
+              Set Thresholds
             </button>
           </div>
         </form>
