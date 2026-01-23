@@ -3,6 +3,39 @@ import type { Sensor, SensorListResponse, AddPurpleAirRequest, AddTempestRequest
 // Use environment variable for API URL, fallback to localhost for development
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Helper to extract a string error message from various error formats
+function extractErrorMessage(err: any, statusCode: number): string {
+  // If err is null/undefined, use status code
+  if (!err) return `Error: ${statusCode}`;
+  
+  // If err.detail exists
+  if (err.detail !== undefined) {
+    if (typeof err.detail === 'string') return err.detail;
+    if (typeof err.detail === 'object') {
+      // FastAPI validation errors have detail as array
+      if (Array.isArray(err.detail)) {
+        return err.detail.map((e: any) => e.msg || String(e)).join(', ');
+      }
+      // Object with message
+      if (err.detail.message) return err.detail.message;
+      if (err.detail.msg) return err.detail.msg;
+      return JSON.stringify(err.detail);
+    }
+    return String(err.detail);
+  }
+  
+  // Other common error fields
+  if (typeof err.message === 'string') return err.message;
+  if (typeof err.error === 'string') return err.error;
+  if (typeof err.error_message === 'string') return err.error_message;
+  
+  // If err is a string itself
+  if (typeof err === 'string') return err;
+  
+  // Fallback
+  return `Error: ${statusCode}`;
+}
+
 async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${endpoint}`, {
     ...options,
@@ -13,8 +46,8 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   });
   
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Error: ${res.status}`);
+    const err = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(err, res.status));
   }
   
   return res.json();

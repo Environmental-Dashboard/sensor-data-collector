@@ -71,6 +71,25 @@ interface Toast {
   message: string;
 }
 
+// Helper to safely extract error message from any value (prevents [object Object])
+function safeErrorMessage(value: any, fallback: string): string {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') {
+    if (value.message && typeof value.message === 'string') return value.message;
+    if (value.error && typeof value.error === 'string') return value.error;
+    if (value.detail && typeof value.detail === 'string') return value.detail;
+    // Don't return [object Object]
+    try {
+      const str = JSON.stringify(value);
+      return str !== '{}' ? str : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return String(value) || fallback;
+}
+
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const [connected, setConnected] = useState(false);
@@ -129,7 +148,7 @@ export default function App() {
       showToast('success', `${sensor.name} is now active!`);
       fetchSensors();
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to turn on sensor';
+      const msg = safeErrorMessage(e?.message, 'Failed to turn on sensor');
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -142,7 +161,7 @@ export default function App() {
       showToast('success', `${sensor.name} stopped`);
       fetchSensors();
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to turn off sensor';
+      const msg = safeErrorMessage(e?.message, 'Failed to turn off sensor');
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -156,18 +175,17 @@ export default function App() {
         showToast('success', `✓ ${sensor.name} is active and working!`);
       } else if (result.status === 'info') {
         // Tempest auto-push info message
-        const msg = typeof result.message === 'string' ? result.message : 'Sensor is working';
+        const msg = safeErrorMessage(result.message, 'Sensor is working');
         showToast('success', msg);
       } else {
         // Handle error - make sure we get a string
-        const errorMsg = typeof result.error_message === 'string' 
-          ? result.error_message 
-          : (typeof result.message === 'string' ? result.message : 'Ping failed');
+        const errorMsg = safeErrorMessage(result.error_message, '') 
+          || safeErrorMessage(result.message, 'Ping failed');
         showToast('error', errorMsg);
       }
       fetchSensors();
     } catch (e: any) {
-      const errorMsg = typeof e.message === 'string' ? e.message : 'An error occurred';
+      const errorMsg = safeErrorMessage(e?.message, 'An error occurred');
       showToast('error', errorMsg);
     }
     setActionLoading(null);
@@ -181,7 +199,7 @@ export default function App() {
       showToast('success', `${sensor.name} deleted`);
       fetchSensors();
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to delete sensor';
+      const msg = safeErrorMessage(e?.message, 'Failed to delete sensor');
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -518,7 +536,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
         await onSubmit({ device_id: deviceId, location, upload_token: token });
       }
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to add sensor';
+      const msg = safeErrorMessage(e?.message, 'Failed to add sensor');
       setError(msg);
       setLoading(false);
     }
