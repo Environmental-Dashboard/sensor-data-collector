@@ -1084,26 +1084,54 @@ function LastDataModal({ sensor, data, onClose }: LastDataModalProps) {
 
   // Format cell values nicely
   const formatValue = (value: string, header: string): string => {
-    // Check if it's a number
-    const num = parseFloat(value);
-    if (!isNaN(num)) {
-      // Temperature, voltage, pressure - show 1-2 decimals
-      if (header.includes('Temp') || header.includes('Voltage') || header.includes('Pressure') || header.includes('Battery')) {
-        return num.toFixed(1);
-      }
-      // Percentages and counts
-      if (header.includes('%') || header.includes('Count') || header.includes('Cycle')) {
-        return Math.round(num).toString();
-      }
-      // Boolean-like (0/1)
-      if (value === '0' || value === '1') {
-        if (header.includes('Load') || header.includes('Auto') || header.includes('On')) {
-          return value === '1' ? '✓ Yes' : '✗ No';
+    // Check for timestamp/date fields first (before number parsing)
+    const headerLower = header.toLowerCase();
+    if (headerLower.includes('timestamp') || headerLower.includes('time') || headerLower.includes('date')) {
+      // Try to parse as date
+      if (value.includes('T') || value.includes('-')) {
+        try {
+          const date = new Date(value);
+          if (!isNaN(date.getTime())) {
+            // Format nicely: "Jan 23, 2026 4:48:34 AM"
+            return date.toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true
+            });
+          }
+        } catch {
+          return value;
         }
       }
-      // Default number formatting
-      if (Number.isInteger(num)) return num.toString();
-      return num.toFixed(2);
+      return value;
+    }
+    
+    // Check if it's a number (but not a date-like string)
+    if (!value.includes('-') && !value.includes('T')) {
+      const num = parseFloat(value);
+      if (!isNaN(num)) {
+        // Temperature, voltage, pressure - show 1-2 decimals
+        if (header.includes('Temp') || header.includes('Voltage') || header.includes('Pressure') || header.includes('Battery')) {
+          return num.toFixed(1);
+        }
+        // Percentages and counts
+        if (header.includes('%') || header.includes('Count') || header.includes('Cycle')) {
+          return Math.round(num).toString();
+        }
+        // Boolean-like (0/1)
+        if (value === '0' || value === '1') {
+          if (header.includes('Load') || header.includes('Auto') || header.includes('On')) {
+            return value === '1' ? '✓ Yes' : '✗ No';
+          }
+        }
+        // Default number formatting
+        if (Number.isInteger(num)) return num.toString();
+        return num.toFixed(2);
+      }
     }
     return value;
   };
