@@ -479,6 +479,15 @@ async def control_voltage_meter_relay(
     if not ok:
         raise HTTPException(status_code=502, detail="Voltage meter did not accept relay command")
 
+    # Update sensor data with new relay state
+    try:
+        status = await vm_service.get_status(vm_ip)
+        if status:
+            manager.update_sensor_field(sensor_id, "auto_mode", status.get("auto_mode"))
+            manager.update_sensor_field(sensor_id, "load_on", status.get("load_on"))
+    except Exception:
+        pass  # Don't fail the request if we can't update the cached state
+
     return {
         "status": "ok",
         "sensor_id": sensor_id,

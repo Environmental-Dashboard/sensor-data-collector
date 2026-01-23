@@ -306,6 +306,15 @@ class SensorManager:
         return None
     
     
+    def update_sensor_field(self, sensor_id: str, field: str, value) -> bool:
+        """Update a single field on a sensor."""
+        if sensor_id not in self._sensors:
+            return False
+        self._sensors[sensor_id][field] = value
+        self._save_to_file()
+        return True
+    
+    
     def get_all_sensors(self, sensor_type: Optional[SensorType] = None) -> list[SensorResponse]:
         """Get all sensors, optionally filtered by type."""
         sensors = list(self._sensors.values())
