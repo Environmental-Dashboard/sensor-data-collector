@@ -305,6 +305,42 @@ class SensorManager:
         return [SensorResponse(**{k: v for k, v in s.items() if k != "upload_token"}) for s in sensors]
 
 
+    def set_polling_frequency(self, sensor_id: str, minutes: int) -> Optional[SensorResponse]:
+        """
+        Update polling frequency for a sensor (in minutes).
+
+        For power saving mode we want coarse steps: 5min, 10min, 15min, ...
+        So we clamp to at least 5 and round to the nearest multiple of 5.
+        """
+        sensor = self._sensors.get(sensor_id)
+        if not sensor:
+            return None
+
+        # Clamp and quantize to 5-minute steps
+        if minutes < 5:
+            minutes = 5
+        step = 5
+        minutes = int(round(minutes / step) * step)
+
+        interval_seconds = minutes * 60
+        sensor["polling_frequency"] = interval_seconds
+
+        # Restart polling job with new interval if active
+        if sensor.get("is_active"):
+            self._stop_polling_job(sensor_id)
+            if sensor["sensor_type"] == SensorType.PURPLE_AIR:
+                self._start_polling_job(sensor_id, self._poll_purple_air_sensor, frequency=interval_seconds)
+            elif sensor["sensor_type"] == SensorType.TEMPEST:
+                self._start_polling_job(sensor_id, self._poll_tempest_sensor, frequency=interval_seconds)
+            elif sensor["sensor_type"] == SensorType.VOLTAGE_METER:
+                self._start_polling_job(sensor_id, self._poll_voltage_meter, frequency=interval_seconds)
+
+        self._save_to_file()
+
+        # Return updated sensor
+        return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
+
+
     def get_last_sent_data(self, sensor_id: str) -> Optional[dict]:
         """
         Get the last data we generated/sent for a sensor.
@@ -815,7 +851,7 @@ class SensorManager:
         
         old_mode = sensor.get("power_mode")
         sensor["power_mode"] = power_mode
-        
+
         # Update status based on new mode
         if power_mode == PowerMode.POWER_SAVING.value:
             if sensor["is_active"]:
@@ -823,6 +859,17 @@ class SensorManager:
         else:
             if sensor["is_active"]:
                 sensor["status"] = SensorStatus.ACTIVE
+
+            # When leaving power saving mode, put the linked Voltage Meter back into AUTO mode
+            voltage_meter = self._find_voltage_meter_for_sensor(sensor_id)
+            if voltage_meter:
+                try:
+                    vm_ip = voltage_meter.get("ip_address")
+                    if vm_ip:
+                        # Let the ESP32 handle cutoff/reconnect logic automatically
+                        asyncio.create_task(self.voltage_meter_service.set_auto_mode(vm_ip, auto=True))
+                except Exception as e:
+                    print(f"Warning: failed to set voltage meter auto mode for sensor {sensor_id}: {e}")
         
         # Restart polling job to update pre-wake schedule
         if sensor["is_active"]:

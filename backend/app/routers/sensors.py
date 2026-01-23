@@ -49,6 +49,8 @@ Author: Frank Kusi Appiah
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 
+from pydantic import BaseModel
+
 from app.models import (
     SensorType,
     AddPurpleAirSensorRequest,
@@ -356,6 +358,107 @@ async def get_last_sent_data(sensor_id: str, manager = Depends(get_sensor_manage
     if not data:
         raise HTTPException(status_code=404, detail="Sensor not found")
     return data
+
+
+class PollingFrequencyRequest(BaseModel):
+    """
+    Request body for updating polling frequency.
+
+    minutes:
+      - Desired interval in minutes
+      - Will be rounded to nearest 5 minutes (min 5)
+    """
+    minutes: int
+
+
+@router.post("/{sensor_id}/frequency", response_model=SensorResponse)
+async def set_polling_frequency(
+    sensor_id: str,
+    body: PollingFrequencyRequest,
+    manager = Depends(get_sensor_manager)
+):
+    """
+    Update polling frequency for a sensor (in minutes).
+
+    Internally we use 5-minute steps: 5, 10, 15, ...
+    """
+    if body.minutes <= 0:
+        raise HTTPException(status_code=400, detail="minutes must be a positive integer")
+
+    sensor = manager.set_polling_frequency(sensor_id, body.minutes)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    return sensor
+
+
+# =============================================================================
+# RELAY CONTROL FOR VOLTAGE METERS
+# =============================================================================
+
+
+class RelayControlRequest(BaseModel):
+    """
+    Relay control payload for Voltage Meter (ESP32).
+
+    mode:
+      - "auto"  -> Let ESP32 control relay based on thresholds
+      - "on"    -> Force relay ON (load powered)
+      - "off"   -> Force relay OFF (load disconnected)
+    """
+    mode: str
+
+
+@router.post("/voltage-meter/{sensor_id}/relay")
+async def control_voltage_meter_relay(
+    sensor_id: str,
+    body: RelayControlRequest,
+    manager = Depends(get_sensor_manager),
+):
+    """
+    Manually control the Voltage Meter relay.
+
+    Modes:
+      - auto: ESP32 controls relay based on voltage thresholds
+      - on:   Force relay ON
+      - off:  Force relay OFF
+    """
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Voltage meter not found")
+
+    if sensor.sensor_type != SensorType.VOLTAGE_METER:
+        raise HTTPException(status_code=400, detail="Relay control only valid for voltage_meter sensors")
+
+    mode = body.mode.lower().strip()
+    if mode not in ("auto", "on", "off"):
+        raise HTTPException(status_code=400, detail="mode must be one of: auto, on, off")
+
+    vm_ip = sensor.ip_address
+    if not vm_ip:
+        raise HTTPException(status_code=400, detail="Voltage meter has no IP address configured")
+
+    # Access the underlying VoltageMeterService via SensorManager
+    vm_service = manager.voltage_meter_service
+
+    try:
+        if mode == "auto":
+            ok = await vm_service.set_auto_mode(vm_ip, auto=True)
+        else:
+            # When forcing ON/OFF, disable auto mode so manual control sticks
+            await vm_service.set_auto_mode(vm_ip, auto=False)
+            ok = await vm_service.set_relay(vm_ip, on=(mode == "on"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
+
+    if not ok:
+        raise HTTPException(status_code=502, detail="Voltage meter did not accept relay command")
+
+    return {
+        "status": "ok",
+        "sensor_id": sensor_id,
+        "mode": mode,
+        "ip_address": vm_ip,
+    }
 
 
 @router.post("/{sensor_id}/turn-on", response_model=SensorResponse)
