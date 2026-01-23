@@ -533,13 +533,18 @@ class SensorManager:
                 if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
                     sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
             else:
-                # Smart error detection
-                result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter)
+                # Smart error detection - pass power_mode so it knows load OFF might be expected
+                result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
                 sensor["last_error"] = result.get("error_message", "Unknown error")
                 sensor["status_reason"] = result.get("error_type")
                 
                 if result.get("error_type") == "battery_low":
                     sensor["status"] = SensorStatus.OFFLINE
+                elif result.get("error_type") == "sleeping":
+                    # In power saving mode, load OFF with good voltage = sleeping (not an error)
+                    sensor["status"] = SensorStatus.SLEEPING
+                    sensor["status_reason"] = None
+                    sensor["last_error"] = None
                 else:
                     sensor["status"] = SensorStatus.ERROR
                 
@@ -563,7 +568,7 @@ class SensorManager:
             else:
                 # Check if there's a linked voltage meter for error detection
                 if voltage_meter:
-                    result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter)
+                    result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
                 
                 sensor["last_error"] = result.get("error_message", "Unknown error")
                 sensor["status_reason"] = result.get("error_type")
@@ -578,12 +583,18 @@ class SensorManager:
         self._save_to_file()
     
     
-    async def _enhance_error_with_voltage_meter_status(self, result: dict, voltage_meter: Optional[dict]) -> dict:
+    async def _enhance_error_with_voltage_meter_status(
+        self, 
+        result: dict, 
+        voltage_meter: Optional[dict],
+        power_mode: Optional[str] = None
+    ) -> dict:
         """
         Smart error detection: Check voltage meter to determine cause.
         
         If the sensor can't be reached:
-        - Load OFF: Battery low (voltage dropped below cutoff)
+        - Load OFF + Power Saving Mode + Voltage > Cutoff: Sleeping (expected, not an error)
+        - Load OFF + Voltage < Cutoff: Battery low (voltage dropped below cutoff)
         - Load ON: WiFi/network error (power is on but can't connect)
         """
         if not voltage_meter:
@@ -602,12 +613,27 @@ class SensorManager:
                 result["voltage_cutoff"] = v_cutoff
                 
                 if not load_on:
-                    # Relay is OFF - battery likely too low
-                    result["error_type"] = "battery_low"
-                    result["error_message"] = (
-                        f"Battery Low ({voltage:.1f}V) - Sensor powered off "
-                        f"(cutoff: {v_cutoff:.1f}V)"
-                    )
+                    # Relay is OFF - check if it's expected (power saving) or battery low
+                    if power_mode == PowerMode.POWER_SAVING.value and voltage >= v_cutoff:
+                        # Power saving mode: load OFF with good voltage = sleeping (not an error)
+                        result["error_type"] = "sleeping"
+                        result["error_message"] = (
+                            f"Sleeping (power saving mode) - Battery: {voltage:.1f}V "
+                            f"(cutoff: {v_cutoff:.1f}V)"
+                        )
+                    elif voltage < v_cutoff:
+                        # Voltage below cutoff = actual battery low
+                        result["error_type"] = "battery_low"
+                        result["error_message"] = (
+                            f"Battery Low ({voltage:.1f}V) - Sensor powered off "
+                            f"(cutoff: {v_cutoff:.1f}V)"
+                        )
+                    else:
+                        # Load OFF but voltage OK and not power saving = unknown reason
+                        result["error_type"] = "wifi_error"
+                        result["error_message"] = (
+                            f"Relay OFF but voltage OK ({voltage:.1f}V) - Check voltage meter settings"
+                        )
                 else:
                     # Relay is ON but sensor not responding - WiFi issue
                     result["error_type"] = "wifi_error"
@@ -691,6 +717,9 @@ class SensorManager:
         if not sensor:
             return {"status": "error", "error_message": "Sensor not found"}
         
+        power_mode = sensor.get("power_mode")
+        voltage_meter = self._find_voltage_meter_for_sensor(sensor_id) if sensor["sensor_type"] == SensorType.PURPLE_AIR else None
+        
         if sensor["sensor_type"] == SensorType.PURPLE_AIR:
             result = await self.purple_air_service.fetch_and_push(
                 ip_address=sensor["ip_address"],
@@ -719,9 +748,27 @@ class SensorManager:
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
         else:
-            sensor["status"] = SensorStatus.ERROR
+            # Apply smart error detection for Purple Air sensors with voltage meters
+            if sensor["sensor_type"] == SensorType.PURPLE_AIR and voltage_meter:
+                result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
+            
+            sensor["last_error"] = result.get("error_message", "Unknown error")
             sensor["status_reason"] = result.get("error_type")
-            sensor["last_error"] = result.get("error_message")
+            
+            if result.get("error_type") == "battery_low":
+                sensor["status"] = SensorStatus.OFFLINE
+            elif result.get("error_type") == "sleeping":
+                # In power saving mode, load OFF with good voltage = sleeping (not an error)
+                sensor["status"] = SensorStatus.SLEEPING
+                sensor["status_reason"] = None
+                sensor["last_error"] = None
+            elif result.get("error_type") == "cloud_error":
+                sensor["status"] = SensorStatus.ERROR
+            else:
+                sensor["status"] = SensorStatus.ERROR
+            
+            if result.get("battery_voltage") is not None:
+                sensor["battery_volts"] = result["battery_voltage"]
         
         self._save_to_file()
         
