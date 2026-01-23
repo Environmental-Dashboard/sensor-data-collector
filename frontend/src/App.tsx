@@ -3,7 +3,7 @@ import {
   Wind, CloudSun, Droplets, Database,
   Plus, Power, PowerOff, Play, Trash2, X,
   Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2,
-  Sun, Moon, Battery
+  Sun, Moon, Battery, Cloud
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
 import * as api from './api';
@@ -369,11 +369,14 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
           <h3 className="sensor-name">{sensor.name}</h3>
           <p className="sensor-location">{sensor.location}</p>
         </div>
-        <div className={`sensor-status ${sensor.status}`}>
+        <div className={`sensor-status ${sensor.status} ${sensor.status_reason === 'battery_low' ? 'battery-low' : ''} ${sensor.status_reason === 'cloud_error' ? 'cloud-error' : ''}`}>
           {sensor.status === 'active' && <Power size={12} />}
           {sensor.status === 'inactive' && <PowerOff size={12} />}
-          {sensor.status === 'error' && <XCircle size={12} />}
-          {sensor.status}
+          {sensor.status === 'error' && sensor.status_reason !== 'cloud_error' && <XCircle size={12} />}
+          {sensor.status === 'error' && sensor.status_reason === 'cloud_error' && <Cloud size={12} />}
+          {sensor.status === 'offline' && sensor.status_reason === 'battery_low' && <Battery size={12} />}
+          {sensor.status === 'offline' && sensor.status_reason !== 'battery_low' && <WifiOff size={12} />}
+          {sensor.status_reason === 'battery_low' ? 'low battery' : sensor.status_reason === 'cloud_error' ? 'cloud issue' : sensor.status}
         </div>
       </div>
 
@@ -396,7 +399,20 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
         </div>
       </div>
 
-      {sensor.last_error && (
+      {/* Battery Low Warning (not an error - expected state) */}
+      {sensor.status_reason === 'battery_low' && sensor.battery_volts !== null && (
+        <div className="sensor-warning">
+          <Battery size={14} /> Battery Low ({sensor.battery_volts.toFixed(1)}V) - Sensor Off
+        </div>
+      )}
+      {/* Cloud Error (not sensor's fault) */}
+      {sensor.last_error && sensor.status_reason === 'cloud_error' && (
+        <div className="sensor-cloud-error">
+          <Cloud size={14} /> {sensor.last_error}
+        </div>
+      )}
+      {/* Regular Errors */}
+      {sensor.last_error && sensor.status_reason !== 'battery_low' && sensor.status_reason !== 'cloud_error' && (
         <div className="sensor-error">{sensor.last_error}</div>
       )}
 

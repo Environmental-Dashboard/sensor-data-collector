@@ -561,6 +561,7 @@ body {
   color: var(--warning);
 }
 
+/* Error message (critical issue) */
 .sensor-error {
   font-size: 0.8125rem;
   padding: 12px 16px;
@@ -573,6 +574,62 @@ body {
 
 html:not(.dark) .sensor-error {
   border: 1px solid rgba(220, 38, 38, 0.2);
+}
+
+/* Warning message (battery low - expected state, not critical) */
+.sensor-warning {
+  font-size: 0.8125rem;
+  padding: 12px 16px;
+  background: rgba(251, 191, 36, 0.1);
+  border-radius: var(--radius-sm);
+  color: #f59e0b;
+  margin-bottom: 20px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+html:not(.dark) .sensor-warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.3);
+}
+
+/* Cloud error (not sensor's fault - temporary issue) */
+.sensor-cloud-error {
+  font-size: 0.8125rem;
+  padding: 12px 16px;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: var(--radius-sm);
+  color: #818cf8;
+  margin-bottom: 20px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+html:not(.dark) .sensor-cloud-error {
+  background: rgba(79, 70, 229, 0.1);
+  color: #4f46e5;
+  border-color: rgba(79, 70, 229, 0.3);
+}
+
+/* Status badge variants */
+.sensor-status.offline {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.sensor-status.offline.battery-low {
+  background: rgba(251, 191, 36, 0.15);
+  color: #f59e0b;
+}
+
+.sensor-status.error.cloud-error {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
 }
 
 .sensor-actions {

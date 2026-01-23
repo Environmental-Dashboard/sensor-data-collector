@@ -14,13 +14,10 @@ Author: Sensor Dashboard Team
 
 import httpx
 import io
-import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.models import WaterQualityReading
-
-logger = logging.getLogger(__name__)
 
 
 class WaterQualityService:
@@ -90,70 +87,44 @@ class WaterQualityService:
         return "\n".join(lines)
     
     async def push_to_endpoint(self, csv_data: str, sensor_name: str, upload_token: str) -> dict:
-        """Upload the CSV data to the community hub cloud."""
-        # Validate CSV before upload
-        if not csv_data or not csv_data.strip():
-            error_msg = "CSV data is empty - cannot upload"
-            logger.error(f"[{sensor_name}] {error_msg}")
-            raise ValueError(error_msg)
+        """Upload the CSV data to the community hub cloud with retry logic."""
+        import asyncio
         
-        # Count rows (header + data)
-        row_count = len([line for line in csv_data.split('\n') if line.strip()])
-        csv_size = len(csv_data.encode('utf-8'))
-        
-        # Log CSV preview (first 500 chars) for debugging
-        csv_preview = csv_data[:500] + "..." if len(csv_data) > 500 else csv_data
-        logger.info(f"[{sensor_name}] Uploading CSV - Size: {csv_size} bytes, Rows: {row_count}")
-        logger.debug(f"[{sensor_name}] CSV preview:\n{csv_preview}")
-        
-        headers = {"user-token": upload_token}
+        headers = {
+            "user-token": upload_token,
+            "Content-Type": "text/csv"
+        }
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         clean_name = "".join(c if c.isalnum() else "_" for c in sensor_name)
         filename = f"WQ_{clean_name}_{timestamp}.csv"
         
         csv_bytes = csv_data.encode("utf-8")
         
-        # Upload as RAW BODY (not multipart form data!)
-        # Community Hub expects: Content-Type: text/csv with raw CSV in body
-        upload_headers = {
-            "user-token": upload_token,
-            "Content-Type": "text/csv"
-        }
+        # Retry logic for cloud errors (502, 503, 504)
+        max_retries = 2
+        retry_delay = 3  # seconds
         
-        try:
-            response = await self.http_client.post(
-                self.UPLOAD_URL,
-                headers=upload_headers,
-                content=csv_bytes  # Raw body, not multipart
-            )
-            response.raise_for_status()
-            
-            logger.info(f"[{sensor_name}] Upload successful - Status: {response.status_code}, File: {filename}")
-            
-            return {
-                "status": "success",
-                "filename": filename,
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "csv_size_bytes": csv_size,
-                "row_count": row_count
-            }
-        except httpx.HTTPStatusError as e:
-            # Log detailed error information
-            error_body = ""
+        for attempt in range(max_retries):
             try:
-                error_body = e.response.text[:500]
-            except:
-                pass
-            
-            logger.error(
-                f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
-                f"Response: {error_body}\n"
-                f"CSV preview: {csv_preview}"
-            )
-            raise
-        except Exception as e:
-            logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
-            raise
+                response = await self.http_client.post(
+                    self.UPLOAD_URL,
+                    headers=headers,
+                    content=csv_bytes  # Raw body, not multipart
+                )
+                response.raise_for_status()
+                
+                return {
+                    "status": "success",
+                    "filename": filename,
+                    "uploaded_at": datetime.now(timezone.utc).isoformat()
+                }
+            except httpx.HTTPStatusError as e:
+                # Retry on server errors (502, 503, 504)
+                if e.response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                    print(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                raise
     
     async def fetch_and_push(self, device_id: str, ubidots_token: str, sensor_name: str, upload_token: str) -> dict:
         """Fetch from Ubidots and upload to cloud."""
@@ -168,31 +139,20 @@ class WaterQualityService:
             
             return {"status": "success", "sensor_name": sensor_name, "reading": reading.model_dump(), "upload_result": upload_result}
         except httpx.HTTPStatusError as e:
-            error_body = ""
-            try:
-                error_body = e.response.text[:500]
-            except:
-                pass
-            
-            if e.response.status_code == 401:
+            # Classify error type based on status code
+            if e.response.status_code in [502, 503, 504]:
+                error_type = "cloud_error"
+                error_msg = f"Cloud service error ({e.response.status_code}) - Community Hub may be temporarily unavailable"
+            elif e.response.status_code == 401:
+                error_type = "auth_error"
                 error_msg = "Invalid Ubidots token"
             elif e.response.status_code == 404:
+                error_type = "not_found"
                 error_msg = "Device not found"
             else:
+                error_type = "http_error"
                 error_msg = f"HTTP error {e.response.status_code}"
-                if error_body:
-                    error_msg += f": {error_body}"
-            
-            logger.error(f"[{sensor_name}] Upload HTTP error: {error_msg}")
-            
-            return {
-                "status": "error",
-                "sensor_name": sensor_name,
-                "error_type": "http_error",
-                "error_message": error_msg,
-                "http_status": e.response.status_code,
-                "error_response": error_body
-            }
+            return {"status": "error", "sensor_name": sensor_name, "error_type": error_type, "error_message": error_msg, "http_status": e.response.status_code}
         except Exception as e:
             return {"status": "error", "sensor_name": sensor_name, "error_type": "unknown_error", "error_message": str(e)}
     

@@ -48,8 +48,6 @@ Author: Frank Kusi Appiah
 
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
-import io
-import httpx
 
 from app.models import (
     SensorType,
@@ -163,10 +161,17 @@ async def add_tempest_sensor(
     Add a Tempest weather station.
     
     Send us:
-    - device_id: The Tempest device ID (find this in the WeatherFlow app)
+    - ip_address: The Tempest Hub's IP
+    - name: What you want to call it
     - location: Where it is
+    - device_id: The Tempest device ID (find this in the WeatherFlow app)
     - upload_token: Your cloud token
     """
+    # Basic IP validation
+    parts = request.ip_address.split(".")
+    if len(parts) != 4:
+        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address")
+    
     return manager.add_tempest_sensor(request)
 
 
@@ -223,85 +228,6 @@ async def get_all_do_sensors(manager = Depends(get_sensor_manager)):
     """Get all Dissolved Oxygen sensors."""
     sensors = manager.get_all_sensors(SensorType.DO_SENSOR)
     return SensorListResponse(sensors=sensors, total=len(sensors))
-
-
-# =============================================================================
-# HEALTH CHECK ENDPOINTS (Must come before parameterized routes)
-# =============================================================================
-
-@router.get("/health/upload-test")
-async def test_upload_endpoint(
-    upload_token: str,
-    manager = Depends(get_sensor_manager)
-):
-    """
-    Test the upload endpoint connectivity and token validity.
-    
-    This sends a minimal test CSV file to verify:
-    - Connectivity to Community Hub
-    - Token validity
-    - Upload endpoint is working
-    
-    Args:
-        upload_token: The token to test
-    
-    Returns:
-        Success/error status with detailed diagnostics
-    """
-    from datetime import datetime, timezone
-    
-    test_csv = "Timestamp,Temperature (°F),Humidity (%)\n2026-01-01T00:00:00+00:00,72.0,45.0"
-    upload_url = "https://oberlin.communityhub.cloud/api/data-hub/upload/csv"
-    
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"test_{timestamp}.csv"
-    
-    headers = {"user-token": upload_token}
-    csv_bytes = test_csv.encode("utf-8")
-    csv_file = io.BytesIO(csv_bytes)
-    files = {"file": (filename, csv_file, "text/csv")}
-    
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(upload_url, headers=headers, files=files)
-            response.raise_for_status()
-            
-            return {
-                "status": "success",
-                "message": "Upload endpoint is reachable and token is valid",
-                "http_status": response.status_code,
-                "test_file": filename,
-                "upload_url": upload_url
-            }
-    except httpx.ConnectError as e:
-        return {
-            "status": "error",
-            "error_type": "connection_error",
-            "message": f"Cannot connect to upload endpoint: {str(e)}",
-            "upload_url": upload_url
-        }
-    except httpx.HTTPStatusError as e:
-        error_body = ""
-        try:
-            error_body = e.response.text[:500]
-        except:
-            pass
-        
-        return {
-            "status": "error",
-            "error_type": "http_error",
-            "message": f"Upload endpoint returned HTTP {e.response.status_code}",
-            "http_status": e.response.status_code,
-            "error_response": error_body,
-            "upload_url": upload_url
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error_type": "unknown_error",
-            "message": str(e),
-            "upload_url": upload_url
-        }
 
 
 # =============================================================================
@@ -417,102 +343,3 @@ async def trigger_fetch_now(sensor_id: str, manager = Depends(get_sensor_manager
         raise HTTPException(status_code=404, detail="Sensor not found")
     
     return result
-
-
-@router.get("/{sensor_id}/diagnostics")
-async def get_sensor_diagnostics(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """
-    Get detailed diagnostics for a sensor.
-    
-    Returns:
-    - Last upload attempt timestamp
-    - Last error details (if any)
-    - Last CSV sample (truncated to 500 chars)
-    - Network connectivity status (for Purple Air)
-    - Sensor reachability
-    """
-    sensor = manager.get_sensor(sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    
-    # Get internal sensor data for diagnostics
-    # Access internal sensors dict (we need to add a method for this)
-    all_sensors = manager.get_all_sensors()
-    sensor_obj = next((s for s in all_sensors if s.id == sensor_id), None)
-    if not sensor_obj:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    
-    # Get full sensor data including internal fields
-    sensor_data = manager.get_sensor_data(sensor_id)
-    if not sensor_data:
-        raise HTTPException(status_code=404, detail="Sensor data not found")
-    
-    diagnostics = {
-        "sensor_id": sensor_id,
-        "sensor_name": sensor_data.get("name"),
-        "sensor_type": sensor_data.get("sensor_type").value if sensor_data.get("sensor_type") else None,
-        "status": sensor_data.get("status").value if sensor_data.get("status") else None,
-        "is_active": sensor_data.get("is_active", False),
-        "last_active": sensor_data.get("last_active").isoformat() if sensor_data.get("last_active") else None,
-        "last_upload_attempt": sensor_data.get("last_upload_attempt"),
-        "last_error": sensor_data.get("last_error"),
-        "last_error_details": sensor_data.get("last_error_details"),
-        "last_csv_sample": sensor_data.get("last_csv_sample"),  # Truncated CSV
-    }
-    
-    # Add connectivity check for Purple Air sensors
-    if sensor_data.get("sensor_type") == SensorType.PURPLE_AIR:
-        ip_address = sensor_data.get("ip_address")
-        if ip_address:
-            # Try to ping the sensor
-            import httpx
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    response = await client.get(f"http://{ip_address}/json", timeout=5.0)
-                    diagnostics["connectivity"] = {
-                        "reachable": True,
-                        "response_time_ms": response.elapsed.total_seconds() * 1000,
-                        "status_code": response.status_code
-                    }
-            except Exception as e:
-                diagnostics["connectivity"] = {
-                    "reachable": False,
-                    "error": str(e)
-                }
-    
-    return diagnostics
-
-
-@router.get("/{sensor_id}/csv-preview")
-async def get_csv_preview(sensor_id: str, manager = Depends(get_sensor_manager)):
-    """
-    Get a preview of the CSV that would be generated for this sensor.
-    
-    This helps debug CSV format issues by showing exactly what would be uploaded.
-    """
-    sensor = manager.get_sensor(sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    
-    # Trigger a fetch to get current data
-    result = await manager.trigger_fetch_now(sensor_id)
-    
-    if result.get("status") == "success":
-        # Extract CSV from upload result if available
-        upload_result = result.get("upload_result", {})
-        csv_sample = upload_result.get("csv_sample", "CSV sample not available")
-        
-        return {
-            "sensor_id": sensor_id,
-            "sensor_name": sensor.name,
-            "csv_preview": csv_sample,
-            "csv_length": len(csv_sample),
-            "note": "This is the CSV that was generated. Check if format matches Community Hub requirements."
-        }
-    else:
-        return {
-            "sensor_id": sensor_id,
-            "sensor_name": sensor.name,
-            "error": result.get("error_message", "Unknown error"),
-            "note": "Could not generate CSV preview due to error"
-        }

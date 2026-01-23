@@ -11,6 +11,7 @@ export interface Sensor {
   ip_address: string | null;
   device_id: string | null;
   status: SensorStatus;
+  status_reason: string | null;  // Why sensor is in this status (battery_low, wifi_error, cloud_error, etc.)
   is_active: boolean;
   last_active: string | null;
   last_error: string | null;

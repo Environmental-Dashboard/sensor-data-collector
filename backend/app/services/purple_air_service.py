@@ -158,18 +158,51 @@ class PurpleAirService:
         else:
             timestamp = datetime.now(timezone.utc)
         
+        # Helper to safely convert values that might be "nan" strings
+        def safe_float(value, default=0.0):
+            """Convert value to float, handling 'nan' strings and missing values."""
+            if value is None:
+                return default
+            if isinstance(value, str):
+                if value.lower() == "nan" or value.strip() == "":
+                    return default
+                try:
+                    return float(value)
+                except ValueError:
+                    return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
+        def safe_int(value, default=0):
+            """Convert value to int, handling 'nan' strings and missing values."""
+            if value is None:
+                return default
+            if isinstance(value, str):
+                if value.lower() == "nan" or value.strip() == "":
+                    return default
+                try:
+                    return int(float(value))  # Handle "12.5" -> 12
+                except ValueError:
+                    return default
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+        
         # Extract the values we care about
-        # .get() returns 0 if the field is missing
+        # Using safe_float/safe_int to handle "nan" strings from sensor
         return PurpleAirReading(
             timestamp=timestamp,
-            temperature_f=float(raw_data.get("current_temp_f", 0)),
-            humidity_percent=float(raw_data.get("current_humidity", 0)),
-            dewpoint_f=float(raw_data.get("current_dewpoint_f", 0)),
-            pressure_hpa=float(raw_data.get("pressure", 0)),
-            pm1_0_cf1=float(raw_data.get("pm1_0_cf_1", 0)),
-            pm2_5_cf1=float(raw_data.get("pm2_5_cf_1", 0)),
-            pm10_0_cf1=float(raw_data.get("pm10_0_cf_1", 0)),
-            pm2_5_aqi=int(raw_data.get("pm2.5_aqi", raw_data.get("pm2_5_aqi", 0)))
+            temperature_f=safe_float(raw_data.get("current_temp_f")),
+            humidity_percent=safe_float(raw_data.get("current_humidity")),
+            dewpoint_f=safe_float(raw_data.get("current_dewpoint_f")),
+            pressure_hpa=safe_float(raw_data.get("pressure")),
+            pm1_0_cf1=safe_float(raw_data.get("pm1_0_cf_1")),
+            pm2_5_cf1=safe_float(raw_data.get("pm2_5_cf_1")),
+            pm10_0_cf1=safe_float(raw_data.get("pm10_0_cf_1")),
+            pm2_5_aqi=safe_int(raw_data.get("pm2.5_aqi", raw_data.get("pm2_5_aqi")))
         )
     
     
@@ -275,44 +308,56 @@ class PurpleAirService:
             "Content-Type": "text/csv"
         }
         
-        try:
-            # Log request details
-            logger.debug(f"[{sensor_name}] Uploading to: {self.UPLOAD_URL}")
-            logger.debug(f"[{sensor_name}] File size: {len(csv_bytes)} bytes")
-            
-            response = await self.http_client.post(
-                self.UPLOAD_URL,
-                headers=upload_headers,
-                content=csv_bytes  # Raw body, not multipart
-            )
-            response.raise_for_status()
-            
-            logger.info(f"[{sensor_name}] Upload successful - Status: {response.status_code}, File: {filename}")
-            
-            return {
-                "status": "success",
-                "filename": filename,
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "csv_size_bytes": csv_size,
-                "row_count": row_count
-            }
-        except httpx.HTTPStatusError as e:
-            # Log detailed error information
-            error_body = ""
+        # Retry logic for cloud errors (502, 503, 504)
+        max_retries = 2
+        retry_delay = 3  # seconds
+        
+        for attempt in range(max_retries):
             try:
-                error_body = e.response.text[:500]  # First 500 chars of error response
-            except:
-                pass
-            
-            logger.error(
-                f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
-                f"Response: {error_body}\n"
-                f"CSV preview: {csv_preview}"
-            )
-            raise
-        except Exception as e:
-            logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
-            raise
+                # Log request details
+                logger.debug(f"[{sensor_name}] Uploading to: {self.UPLOAD_URL} (attempt {attempt + 1}/{max_retries})")
+                logger.debug(f"[{sensor_name}] File size: {len(csv_bytes)} bytes")
+                
+                response = await self.http_client.post(
+                    self.UPLOAD_URL,
+                    headers=upload_headers,
+                    content=csv_bytes  # Raw body, not multipart
+                )
+                response.raise_for_status()
+                
+                logger.info(f"[{sensor_name}] Upload successful - Status: {response.status_code}, File: {filename}")
+                
+                return {
+                    "status": "success",
+                    "filename": filename,
+                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                    "csv_size_bytes": csv_size,
+                    "row_count": row_count
+                }
+            except httpx.HTTPStatusError as e:
+                # Log detailed error information
+                error_body = ""
+                try:
+                    error_body = e.response.text[:500]  # First 500 chars of error response
+                except:
+                    pass
+                
+                # Retry on server errors (502, 503, 504)
+                if e.response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                    logger.warning(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
+                    import asyncio
+                    await asyncio.sleep(retry_delay)
+                    continue
+                
+                logger.error(
+                    f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
+                    f"Response: {error_body}\n"
+                    f"CSV preview: {csv_preview}"
+                )
+                raise
+            except Exception as e:
+                logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
+                raise
     
     
     async def fetch_and_push(self, ip_address: str, sensor_name: str, upload_token: str) -> dict:
@@ -395,18 +440,29 @@ class PurpleAirService:
             except:
                 pass
             
-            error_msg = f"HTTP error {e.response.status_code}"
-            if error_body:
-                error_msg += f": {error_body}"
+            # Classify error type based on status code
+            if e.response.status_code in [502, 503, 504]:
+                # Cloud/server error - not the sensor's fault
+                error_type = "cloud_error"
+                error_msg = f"Cloud service error ({e.response.status_code}) - Community Hub may be temporarily unavailable"
+            elif e.response.status_code == 401:
+                error_type = "auth_error"
+                error_msg = "Invalid upload token - check your credentials"
+            elif e.response.status_code == 400:
+                error_type = "data_error"
+                error_msg = f"Invalid data format: {error_body}" if error_body else "Invalid data format"
             else:
-                error_msg += ". Check if the upload token is correct."
+                error_type = "http_error"
+                error_msg = f"HTTP error {e.response.status_code}"
+                if error_body:
+                    error_msg += f": {error_body}"
             
             logger.error(f"[{sensor_name}] Upload HTTP error: {error_msg}")
             
             return {
                 "status": "error",
                 "sensor_name": sensor_name,
-                "error_type": "http_error",
+                "error_type": error_type,
                 "error_message": error_msg,
                 "http_status": e.response.status_code,
                 "error_response": error_body

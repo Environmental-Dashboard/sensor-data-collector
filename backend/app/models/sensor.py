@@ -26,7 +26,7 @@ Author: Frank Kusi Appiah
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 
 
@@ -237,6 +237,7 @@ class SensorResponse(BaseModel):
     ip_address: Optional[str] = Field(None, description="Network IP")
     device_id: Optional[str] = Field(None, description="Device ID (Tempest)")
     status: SensorStatus = Field(default=SensorStatus.INACTIVE)
+    status_reason: Optional[str] = Field(None, description="Why sensor is in this status (battery_low, wifi_error, cloud_error)")
     is_active: bool = Field(default=False, description="Is polling enabled?")
     last_active: Optional[datetime] = Field(None, description="Last successful data fetch")
     last_error: Optional[str] = Field(None, description="Last error message")
@@ -327,32 +328,8 @@ class PurpleAirReading(BaseModel):
 
     def to_csv_row(self) -> str:
         """Turn this reading into a CSV row (comma-separated values)."""
-        # Format timestamp as ISO 8601 with local timezone offset (like -04:00)
-        # This matches the successful upload format: 2026-01-06T01:54:20-04:00
-        from datetime import datetime as dt
-        
-        # Get local timezone
-        if self.timestamp.tzinfo is None:
-            # If no timezone, assume UTC and convert to local
-            utc_time = self.timestamp.replace(tzinfo=timezone.utc)
-        else:
-            utc_time = self.timestamp
-        
-        # Convert to local timezone
-        local_time = utc_time.astimezone()
-        offset = local_time.utcoffset()
-        
-        if offset:
-            total_seconds = int(offset.total_seconds())
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            sign = '-' if hours < 0 else '+'
-            timestamp_str = local_time.strftime(f"%Y-%m-%dT%H:%M:%S{sign}{abs(hours):02d}:{abs(minutes):02d}")
-        else:
-            timestamp_str = local_time.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        
         return (
-            f"{timestamp_str},"
+            f"{self.timestamp.isoformat()},"
             f"{self.temperature_f},"
             f"{self.humidity_percent},"
             f"{self.dewpoint_f},"
@@ -366,8 +343,12 @@ class PurpleAirReading(BaseModel):
     @staticmethod
     def csv_header() -> str:
         """The header row for CSV files."""
-        # Exact format expected by Community Hub - single line, no extra spaces
-        return "Timestamp,Temperature (°F),Humidity (%),Dewpoint (°F),Pressure (hPa),PM1.0 :cf_1( µg/m³),PM2.5 :cf_1( µg/m³),PM10.0 :cf_1( µg/m³),PM2.5 AQI"
+        return (
+            "Timestamp,Temperature (°F),Humidity (%),"
+            "Dewpoint (°F),Pressure (hPa),"
+            "PM1.0 :cf_1( µg/m³),PM2.5 :cf_1( µg/m³),"
+            "PM10.0 :cf_1( µg/m³),PM2.5 AQI"
+        )
 
 
 # =============================================================================

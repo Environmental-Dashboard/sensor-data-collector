@@ -338,6 +338,21 @@ vercel --prod  # Redeploy
 - Is sensor on same network as backend computer?
 - Check `backend.log` for error details
 
+### Sensor shows "Low Battery" (Yellow Warning)
+
+This is **not an error** - it's an expected state when the battery voltage drops below the cutoff threshold:
+- The voltage meter automatically powered off the sensor to protect the battery
+- Sensor will resume when battery recovers above the reconnect threshold
+- Check battery voltage on the sensor card
+
+### Sensor shows "Cloud Issue" (Purple Badge)
+
+Community Hub may be temporarily unavailable:
+- The system automatically retries uploads once before reporting this error
+- Data collection from the sensor is still working
+- Uploads will resume automatically when Community Hub is back online
+- This is not your sensor's fault - just a temporary cloud service issue
+
 ### Backend won't start (port in use)
 
 The startup scripts automatically kill existing processes, but if needed:
