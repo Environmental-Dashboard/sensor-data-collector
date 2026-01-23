@@ -495,4 +495,4 @@ To add support for a new sensor type:
 ## Credits
 
 - Frank Kusi Appiah
-- Environmental Dashboard Project
+- Menard Simoya
