@@ -13,12 +13,14 @@ from .sensor import (
     # What kind of sensors and their status
     SensorType,
     SensorStatus,
+    PowerMode,
     
     # What the frontend sends us when adding sensors
     AddPurpleAirSensorRequest,
     AddTempestSensorRequest,
     AddWaterQualitySensorRequest,
     AddDOSensorRequest,
+    AddVoltageMeterRequest,
     UpdateSensorRequest,
     
     # What we send back to the frontend
@@ -34,10 +36,12 @@ from .sensor import (
 __all__ = [
     "SensorType",
     "SensorStatus",
+    "PowerMode",
     "AddPurpleAirSensorRequest",
     "AddTempestSensorRequest",
     "AddWaterQualitySensorRequest",
     "AddDOSensorRequest",
+    "AddVoltageMeterRequest",
     "UpdateSensorRequest",
     "SensorResponse",
     "SensorListResponse",

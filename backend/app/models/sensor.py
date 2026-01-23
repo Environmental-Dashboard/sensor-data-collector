@@ -42,6 +42,7 @@ class SensorType(str, Enum):
     
     PURPLE_AIR = Air quality sensor (measures PM2.5, dust, etc.)
     TEMPEST = Weather station (temp, wind, rain, lightning)
+    VOLTAGE_METER = ESP32 battery cutoff monitor
     WATER_QUALITY = Water sensor (coming soon)
     DO_SENSOR = Dissolved Oxygen sensor (coming soon)
     """
@@ -49,6 +50,7 @@ class SensorType(str, Enum):
     WATER_QUALITY = "water_quality"
     DO_SENSOR = "do_sensor"
     TEMPEST = "tempest"
+    VOLTAGE_METER = "voltage_meter"
 
 
 # =============================================================================
@@ -64,11 +66,30 @@ class SensorStatus(str, Enum):
     INACTIVE = Sensor is registered but we're not collecting data (turned off).
     ERROR = Something went wrong on the last attempt.
     OFFLINE = Can't reach the sensor at all.
+    SLEEPING = Power saving mode - relay OFF, waiting for next poll.
+    WAKING = Power saving mode - relay ON, sensor booting up.
     """
     ACTIVE = "active"
     INACTIVE = "inactive"
     ERROR = "error"
     OFFLINE = "offline"
+    SLEEPING = "sleeping"
+    WAKING = "waking"
+
+
+class PowerMode(str, Enum):
+    """
+    Power mode for Purple Air sensors with linked Voltage Meters.
+    
+    NORMAL = Sensor is always powered on, polls continuously.
+    POWER_SAVING = Sensor is powered off between polls:
+        1. 30s before poll: Turn relay ON (status: WAKING)
+        2. Wait for WiFi connection (~25s)
+        3. Fetch data (status: ACTIVE briefly)
+        4. Turn relay OFF (status: SLEEPING)
+    """
+    NORMAL = "normal"
+    POWER_SAVING = "power_saving"
 
 
 # =============================================================================
@@ -186,6 +207,46 @@ class AddDOSensorRequest(BaseModel):
     upload_token: str = Field(..., description="Your upload token")
 
 
+class AddVoltageMeterRequest(BaseModel):
+    """
+    Adding a Voltage Meter (ESP32 Battery Cutoff Monitor)?
+    
+    This device monitors battery voltage and controls power to sensors.
+    Can be linked to a Purple Air sensor for power saving mode.
+    
+    Fields:
+        ip_address: The ESP32's IP address on your network
+        linked_sensor_id: Optional - ID of the Purple Air sensor this controls
+        name: Optional - auto-generated if linked_sensor_id is provided
+        location: Where is it physically located?
+        upload_token: Your upload token for oberlin.communityhub.cloud
+    """
+    ip_address: str = Field(
+        ..., 
+        description="IP address of the ESP32 (e.g., 10.17.195.65)",
+        examples=["10.17.195.65", "192.168.1.100"]
+    )
+    linked_sensor_id: Optional[str] = Field(
+        None,
+        description="ID of the Purple Air sensor this battery monitor controls"
+    )
+    name: Optional[str] = Field(
+        None, 
+        description="Friendly name (auto-generated if linked to a sensor)", 
+        max_length=100
+    )
+    location: str = Field(
+        ..., 
+        description="Physical location", 
+        min_length=1, 
+        max_length=200
+    )
+    upload_token: str = Field(
+        ..., 
+        description="Your upload token for oberlin.communityhub.cloud"
+    )
+
+
 class UpdateSensorRequest(BaseModel):
     """
     Want to update a sensor's info? Send what you want to change.
@@ -194,6 +255,11 @@ class UpdateSensorRequest(BaseModel):
     """
     name: Optional[str] = Field(None, description="New name")
     location: Optional[str] = Field(None, description="New location")
+    ip_address: Optional[str] = Field(None, description="New IP address")
+    device_id: Optional[str] = Field(None, description="New device ID")
+    upload_token: Optional[str] = Field(None, description="New upload token")
+    linked_sensor_id: Optional[str] = Field(None, description="Link to a Purple Air sensor")
+    power_mode: Optional[str] = Field(None, description="Power mode: normal or power_saving")
 
 
 # =============================================================================
@@ -242,7 +308,10 @@ class SensorResponse(BaseModel):
     last_active: Optional[datetime] = Field(None, description="Last successful data fetch")
     last_error: Optional[str] = Field(None, description="Last error message")
     created_at: datetime = Field(..., description="When sensor was added")
-    battery_volts: Optional[float] = Field(None, description="Battery voltage (Tempest only)")
+    battery_volts: Optional[float] = Field(None, description="Battery voltage (Tempest/Voltage Meter)")
+    linked_sensor_id: Optional[str] = Field(None, description="Linked sensor ID (for Voltage Meters)")
+    linked_sensor_name: Optional[str] = Field(None, description="Linked sensor name (for Voltage Meters)")
+    power_mode: Optional[str] = Field(None, description="Power mode: normal or power_saving (Purple Air)")
 
 
 class SensorListResponse(BaseModel):

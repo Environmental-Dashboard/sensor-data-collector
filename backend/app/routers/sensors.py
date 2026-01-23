@@ -55,8 +55,10 @@ from app.models import (
     AddTempestSensorRequest,
     AddWaterQualitySensorRequest,
     AddDOSensorRequest,
+    AddVoltageMeterRequest,
     SensorResponse,
     SensorListResponse,
+    PowerMode,
 )
 
 
@@ -231,6 +233,50 @@ async def get_all_do_sensors(manager = Depends(get_sensor_manager)):
 
 
 # =============================================================================
+# VOLTAGE METER ENDPOINTS (ESP32 Battery Cutoff Monitor)
+# =============================================================================
+
+@router.post("/voltage-meter", response_model=SensorResponse)
+async def add_voltage_meter(
+    request: AddVoltageMeterRequest,
+    manager = Depends(get_sensor_manager)
+):
+    """
+    Add a Voltage Meter (ESP32 Battery Cutoff Monitor).
+    
+    This device monitors battery voltage and can control power to sensors.
+    
+    Send us:
+    - ip_address: The ESP32's IP on your network
+    - location: Where it is physically
+    - upload_token: Your cloud token
+    - linked_sensor_id: Optional - ID of the Purple Air sensor this controls
+    - name: Optional - auto-generated if linked to a sensor
+    """
+    # Basic IP validation
+    parts = request.ip_address.split(".")
+    if len(parts) != 4:
+        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address")
+    
+    # Validate linked sensor exists if provided
+    if request.linked_sensor_id:
+        linked_sensor = manager.get_sensor(request.linked_sensor_id)
+        if not linked_sensor:
+            raise HTTPException(status_code=400, detail="Linked sensor not found")
+        if linked_sensor.sensor_type != SensorType.PURPLE_AIR:
+            raise HTTPException(status_code=400, detail="Can only link voltage meters to Purple Air sensors")
+    
+    return manager.add_voltage_meter_sensor(request)
+
+
+@router.get("/voltage-meter", response_model=SensorListResponse)
+async def get_all_voltage_meters(manager = Depends(get_sensor_manager)):
+    """Get all Voltage Meters."""
+    sensors = manager.get_all_sensors(SensorType.VOLTAGE_METER)
+    return SensorListResponse(sensors=sensors, total=len(sensors))
+
+
+# =============================================================================
 # GENERAL SENSOR ENDPOINTS (Work for any sensor type)
 # =============================================================================
 
@@ -340,6 +386,52 @@ async def trigger_fetch_now(sensor_id: str, manager = Depends(get_sensor_manager
     result = await manager.trigger_fetch_now(sensor_id)
     
     if result.get("status") == "error" and "not found" in result.get("error_message", "").lower():
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    
+    return result
+
+
+# =============================================================================
+# POWER MODE ENDPOINT
+# =============================================================================
+
+@router.post("/{sensor_id}/power-mode", response_model=SensorResponse)
+async def set_power_mode(
+    sensor_id: str,
+    power_mode: str,
+    manager = Depends(get_sensor_manager)
+):
+    """
+    Set the power mode for a Purple Air sensor.
+    
+    Options:
+    - normal: Sensor always powered on, polls continuously
+    - power_saving: Sensor powered off between polls, relay cycles
+    
+    Power saving mode requires a linked Voltage Meter.
+    """
+    if power_mode not in ["normal", "power_saving"]:
+        raise HTTPException(status_code=400, detail="power_mode must be 'normal' or 'power_saving'")
+    
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    
+    if sensor.sensor_type != SensorType.PURPLE_AIR:
+        raise HTTPException(status_code=400, detail="Power mode only applies to Purple Air sensors")
+    
+    # Check for linked voltage meter if enabling power saving
+    if power_mode == "power_saving":
+        voltage_meters = manager.get_all_sensors(SensorType.VOLTAGE_METER)
+        linked = any(vm.linked_sensor_id == sensor_id for vm in voltage_meters)
+        if not linked:
+            raise HTTPException(
+                status_code=400, 
+                detail="Power saving mode requires a linked Voltage Meter to control power"
+            )
+    
+    result = manager.set_power_mode(sensor_id, power_mode)
+    if not result:
         raise HTTPException(status_code=404, detail="Sensor not found")
     
     return result

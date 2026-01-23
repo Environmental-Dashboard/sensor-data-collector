@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.routers import sensors_router, set_sensor_manager
-from app.services import PurpleAirService, TempestService, SensorManager
+from app.services import PurpleAirService, TempestService, VoltageMeterService, SensorManager
 
 
 load_dotenv()
@@ -50,12 +50,13 @@ async def lifespan(app: FastAPI):
     
     purple_air_service = PurpleAirService()
     tempest_service = TempestService()
+    voltage_meter_service = VoltageMeterService()
     
     sensor_manager = SensorManager(
         purple_air_service=purple_air_service,
         tempest_service=tempest_service,
+        voltage_meter_service=voltage_meter_service,
         polling_interval=Config.POLLING_INTERVAL,
-        tempest_api_token=Config.TEMPEST_API_TOKEN
     )
     
     set_sensor_manager(sensor_manager)
@@ -63,7 +64,7 @@ async def lifespan(app: FastAPI):
     print(f"Polling every {Config.POLLING_INTERVAL} seconds")
     print(f"Uploads to: oberlin.communityhub.cloud")
     print()
-    print("Sensors: Purple Air, Tempest")
+    print("Sensors: Purple Air, Tempest, Voltage Meter")
     print("API Docs: http://localhost:8000/docs")
     print("=" * 60)
     print()

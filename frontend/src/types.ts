@@ -1,6 +1,7 @@
 // Sensor types
-export type SensorType = 'purple_air' | 'tempest' | 'water_quality' | 'do_sensor';
-export type SensorStatus = 'active' | 'inactive' | 'error' | 'offline';
+export type SensorType = 'purple_air' | 'tempest' | 'water_quality' | 'do_sensor' | 'voltage_meter';
+export type SensorStatus = 'active' | 'inactive' | 'error' | 'offline' | 'sleeping' | 'waking';
+export type PowerMode = 'normal' | 'power_saving';
 
 // A sensor from the API
 export interface Sensor {
@@ -16,7 +17,10 @@ export interface Sensor {
   last_active: string | null;
   last_error: string | null;
   created_at: string;
-  battery_volts: number | null;  // Tempest battery voltage
+  battery_volts: number | null;  // Tempest/Voltage Meter battery voltage
+  linked_sensor_id: string | null;  // For voltage meters - linked Purple Air sensor
+  linked_sensor_name: string | null;  // For voltage meters - linked sensor name
+  power_mode: PowerMode | null;  // For Purple Air - normal or power_saving
 }
 
 // List response
@@ -45,4 +49,12 @@ export interface AddWaterQualityRequest {
   name: string;
   location: string;
   upload_token: string;
+}
+
+export interface AddVoltageMeterRequest {
+  ip_address: string;
+  name?: string;  // Optional - auto-generated if linked_sensor_id is provided
+  location: string;
+  upload_token: string;
+  linked_sensor_id?: string;  // Optional - link to a Purple Air sensor
 }

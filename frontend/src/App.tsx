@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Wind, CloudSun, Droplets, Database,
+  Wind, CloudSun, Droplets, Database, Zap,
   Plus, Power, PowerOff, Play, Trash2, X,
   Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2,
-  Sun, Moon, Battery, Cloud
+  Sun, Moon, Battery, Cloud, Sunrise
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
 import * as api from './api';
@@ -372,11 +372,17 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
         <div className={`sensor-status ${sensor.status} ${sensor.status_reason === 'battery_low' ? 'battery-low' : ''} ${sensor.status_reason === 'cloud_error' ? 'cloud-error' : ''}`}>
           {sensor.status === 'active' && <Power size={12} />}
           {sensor.status === 'inactive' && <PowerOff size={12} />}
+          {sensor.status === 'sleeping' && <Moon size={12} />}
+          {sensor.status === 'waking' && <Sunrise size={12} />}
           {sensor.status === 'error' && sensor.status_reason !== 'cloud_error' && <XCircle size={12} />}
           {sensor.status === 'error' && sensor.status_reason === 'cloud_error' && <Cloud size={12} />}
           {sensor.status === 'offline' && sensor.status_reason === 'battery_low' && <Battery size={12} />}
           {sensor.status === 'offline' && sensor.status_reason !== 'battery_low' && <WifiOff size={12} />}
-          {sensor.status_reason === 'battery_low' ? 'low battery' : sensor.status_reason === 'cloud_error' ? 'cloud issue' : sensor.status}
+          {sensor.status === 'sleeping' ? 'sleeping' :
+           sensor.status === 'waking' ? 'waking up' :
+           sensor.status_reason === 'battery_low' ? 'low battery' : 
+           sensor.status_reason === 'cloud_error' ? 'cloud issue' : 
+           sensor.status}
         </div>
       </div>
 
@@ -387,10 +393,25 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <code>{sensor.ip_address}</code>
           </div>
         )}
-        {sensor.sensor_type === 'tempest' && sensor.battery_volts !== null && (
-          <div className={`meta-item ${sensor.battery_volts < 2.5 ? 'battery-low' : ''}`}>
+        {/* Battery voltage for Tempest and Voltage Meter */}
+        {(sensor.sensor_type === 'tempest' || sensor.sensor_type === 'voltage_meter') && sensor.battery_volts !== null && (
+          <div className={`meta-item ${sensor.sensor_type === 'tempest' && sensor.battery_volts < 2.5 ? 'battery-low' : ''}`}>
             <Battery size={14} />
-            <span>{sensor.battery_volts}V</span>
+            <span>{sensor.battery_volts.toFixed(2)}V</span>
+          </div>
+        )}
+        {/* Power mode indicator for Purple Air */}
+        {sensor.sensor_type === 'purple_air' && sensor.power_mode === 'power_saving' && (
+          <div className="meta-item power-mode">
+            <Moon size={14} />
+            <span>Power Saving</span>
+          </div>
+        )}
+        {/* Linked sensor for Voltage Meter */}
+        {sensor.sensor_type === 'voltage_meter' && sensor.linked_sensor_name && (
+          <div className="meta-item linked-sensor">
+            <Zap size={14} />
+            <span>Controls: {sensor.linked_sensor_name}</span>
           </div>
         )}
         <div className="meta-item">
@@ -399,6 +420,18 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
         </div>
       </div>
 
+      {/* Sleeping indicator (power saving mode) */}
+      {sensor.status === 'sleeping' && (
+        <div className="sensor-sleeping">
+          <Moon size={14} /> Sleeping until next poll (power saving mode)
+        </div>
+      )}
+      {/* Waking indicator (power saving mode) */}
+      {sensor.status === 'waking' && (
+        <div className="sensor-waking">
+          <Sunrise size={14} /> Waking up... connecting to WiFi
+        </div>
+      )}
       {/* Battery Low Warning (not an error - expected state) */}
       {sensor.status_reason === 'battery_low' && sensor.battery_volts !== null && (
         <div className="sensor-warning">
