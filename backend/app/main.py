@@ -49,8 +49,10 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
     
     purple_air_service = PurpleAirService()
-    tempest_service = TempestService()
+    tempest_service = TempestService(api_token=Config.TEMPEST_API_TOKEN)
     voltage_meter_service = VoltageMeterService()
+    
+    print(f"Tempest API Token: {Config.TEMPEST_API_TOKEN[:8]}...{Config.TEMPEST_API_TOKEN[-4:]}")
     
     sensor_manager = SensorManager(
         purple_air_service=purple_air_service,
