@@ -27,7 +27,8 @@ class Config:
     # WeatherFlow Tempest API Token
     # Get from https://tempestwx.com/settings/tokens
     # One token works for ALL Tempest devices
-    TEMPEST_API_TOKEN = os.getenv("TEMPEST_API_TOKEN", "f9c76677-ed46-4902-ab96-a89fcb9ac1bf")
+    # Token is passed as query parameter: ?token=...
+    TEMPEST_API_TOKEN = os.getenv("TEMPEST_API_TOKEN", "61a83ac0-678f-4284-b9aa-e962cf6a7ede")
     
     # CORS - Allow the frontend to connect
     CORS_ORIGINS = [
