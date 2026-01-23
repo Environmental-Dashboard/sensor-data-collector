@@ -12,31 +12,31 @@ How all components connect together - from physical sensors to the cloud.
 flowchart TB
     subgraph Physical [Physical Layer]
         direction LR
-        PA1[Purple Air 001<br/>10.17.192.161]
-        PA2[Purple Air 002<br/>10.17.192.162]
-        PA3[Purple Air 003<br/>10.17.192.163]
-        TM[Tempest Weather<br/>Device 205498]
-        VM[Voltage Meter ESP32<br/>10.17.196.250]
-        BAT[12V LiFePO4<br/>Battery]
+        PA1["Purple Air 001\n10.17.192.161"]
+        PA2["Purple Air 002\n10.17.192.162"]
+        PA3["Purple Air 003\n10.17.192.163"]
+        TM["Tempest Weather\nDevice 205498"]
+        VM["Voltage Meter ESP32\n10.17.196.250"]
+        BAT["12V LiFePO4\nBattery"]
     end
 
     subgraph Backend [Backend Server - Local Machine]
         direction TB
-        MAIN[FastAPI App<br/>main.py]
-        SM[Sensor Manager<br/>The Brain]
-        SCH[APScheduler<br/>Polling Timer]
+        MAIN["FastAPI App\nmain.py"]
+        SM["Sensor Manager\nThe Brain"]
+        SCH["APScheduler\nPolling Timer"]
         
         subgraph Services [Service Layer]
-            PAS[Purple Air<br/>Service]
-            TMS[Tempest<br/>Service]
-            VMS[Voltage Meter<br/>Service]
+            PAS["Purple Air\nService"]
+            TMS["Tempest\nService"]
+            VMS["Voltage Meter\nService"]
         end
     end
 
     subgraph Cloud [Cloud Services]
-        CH[Community Hub<br/>oberlin.communityhub.cloud]
-        VCL[Vercel<br/>Frontend Hosting]
-        CFT[Cloudflare Tunnel<br/>Secure Access]
+        CH["Community Hub\noberlin.communityhub.cloud"]
+        VCL["Vercel\nFrontend Hosting"]
+        CFT["Cloudflare Tunnel\nSecure Access"]
     end
 
     subgraph Client [End Users]
@@ -72,24 +72,24 @@ How the system conserves battery by cycling power to sensors.
 ```mermaid
 flowchart TD
     subgraph Scheduler [APScheduler Jobs]
-        PREWAKE[Pre-Wake Job<br/>Runs 30s before poll]
-        POLL[Poll Job<br/>Main data collection]
+        PREWAKE["Pre-Wake Job\nRuns 30s before poll"]
+        POLL["Poll Job\nMain data collection"]
     end
 
     subgraph PowerCycle [Power Saving Cycle]
-        A[Sensor SLEEPING<br/>Relay OFF] -->|30s before poll| B[Pre-Wake Triggered]
-        B --> C[Turn Relay ON<br/>Status: WAKING]
-        C --> D[Wait for WiFi<br/>~25 seconds]
-        D --> E[Poll Triggered<br/>Fetch Data]
+        A["Sensor SLEEPING\nRelay OFF"] -->|30s before poll| B[Pre-Wake Triggered]
+        B --> C["Turn Relay ON\nStatus: WAKING"]
+        C --> D["Wait for WiFi\n~25 seconds"]
+        D --> E["Poll Triggered\nFetch Data"]
         E --> F{Fetch OK?}
         F -->|Yes| G[Upload to Cloud]
-        G --> H[Turn Relay OFF<br/>Status: SLEEPING]
+        G --> H["Turn Relay OFF\nStatus: SLEEPING"]
         H --> A
         
         F -->|No| I[Check Voltage Meter]
         I --> J{Relay ON?}
-        J -->|No| K[Status: OFFLINE<br/>Reason: battery_low]
-        J -->|Yes| L[Status: ERROR<br/>Reason: wifi_error]
+        J -->|No| K["Status: OFFLINE\nReason: battery_low"]
+        J -->|Yes| L["Status: ERROR\nReason: wifi_error"]
     end
 
     PREWAKE -.-> B
@@ -106,16 +106,16 @@ All possible sensor states and their transitions.
 stateDiagram-v2
     [*] --> Inactive: Sensor Added
     
-    Inactive --> Active: Turn On<br/>Normal Mode
-    Inactive --> Sleeping: Turn On<br/>Power Saving Mode
+    Inactive --> Active: Turn On\nNormal Mode
+    Inactive --> Sleeping: Turn On\nPower Saving Mode
     
     state PowerSaving {
-        Sleeping --> Waking: Pre-Wake<br/>30s before poll
+        Sleeping --> Waking: Pre-Wake\n30s before poll
         Waking --> Active: WiFi Connected
-        Active --> Sleeping: Data Sent<br/>Relay OFF
+        Active --> Sleeping: Data Sent\nRelay OFF
     }
     
-    Active --> Active: Poll Success<br/>Normal Mode
+    Active --> Active: Poll Success\nNormal Mode
     
     Active --> Error: Fetch/Upload Failed
     Waking --> Error: WiFi Timeout
@@ -158,7 +158,7 @@ sequenceDiagram
         SM->>SM: status = WAKING
     end
     
-    Note over PA: Sensor boots...<br/>~25 seconds
+    Note over PA: Sensor boots...\n~25 seconds
     
     rect rgb(50, 80, 50)
         Note right of SCH: Data Collection Phase
@@ -258,27 +258,24 @@ How the system determines the cause of sensor failures.
 
 ```mermaid
 flowchart TD
-    A[Sensor Fetch Failed] --> B{Has linked<br/>Voltage Meter?}
+    A[Sensor Fetch Failed] --> B{"Has linked\nVoltage Meter?"}
     
-    B -->|No| C[Generic Error<br/>Status: ERROR]
+    B -->|No| C["Generic Error\nStatus: ERROR"]
     
-    B -->|Yes| D[Query Voltage Meter<br/>GET /status.json]
+    B -->|Yes| D["Query Voltage Meter\nGET /status.json"]
     D --> E{Response OK?}
     
-    E -->|No| F[Cannot determine cause<br/>Status: ERROR]
+    E -->|No| F["Cannot determine cause\nStatus: ERROR"]
     
     E -->|Yes| G{Relay ON?}
     
-    G -->|No| H[Battery Low<br/>Voltage below cutoff]
-    H --> I[Status: OFFLINE<br/>Reason: battery_low]
-    I --> J[Message:<br/>Battery Low - Sensor powered off]
+    G -->|No| H["Battery Low\nVoltage below cutoff"]
+    H --> I["Status: OFFLINE\nReason: battery_low"]
+    I --> J["Message:\nBattery Low - Sensor powered off"]
     
-    G -->|Yes| K[Power is ON but<br/>sensor not responding]
-    K --> L[Status: ERROR<br/>Reason: wifi_error]
-    L --> M[Message:<br/>WiFi/Network Error]
-    
-    style I fill:#f59e0b,color:#000
-    style L fill:#dc2626,color:#fff
+    G -->|Yes| K["Power is ON but\nsensor not responding"]
+    K --> L["Status: ERROR\nReason: wifi_error"]
+    L --> M["Message:\nWiFi/Network Error"]
 ```
 
 ---
@@ -291,9 +288,9 @@ The endpoints available on the Battery Cutoff Monitor.
 flowchart LR
     subgraph ESP32 [ESP32 Voltage Meter]
         direction TB
-        STATUS[/status.json<br/>GET]
-        RELAY[/relay<br/>GET]
-        SETTINGS[/settings<br/>GET]
+        STATUS["/status.json\nGET"]
+        RELAY["/relay\nGET"]
+        SETTINGS["/settings\nGET"]
     end
     
     subgraph StatusResponse [Status Response]
@@ -330,8 +327,8 @@ How the React frontend displays sensor data.
 ```mermaid
 flowchart TD
     subgraph App [App.tsx]
-        FETCH[fetchSensors<br/>useEffect]
-        STATE[sensors state<br/>useState]
+        FETCH["fetchSensors\nuseEffect"]
+        STATE["sensors state\nuseState"]
         TABS[Tab Navigation]
     end
     
@@ -342,11 +339,11 @@ flowchart TD
     end
     
     subgraph StatusBadges [Status Indicators]
-        ACTIVE[Active<br/>Power icon]
-        SLEEP[Sleeping<br/>Moon icon]
-        WAKE[Waking<br/>Sunrise icon]
-        BATT[Battery Low<br/>Battery icon]
-        ERR[Error<br/>X icon]
+        ACTIVE["Active\nPower icon"]
+        SLEEP["Sleeping\nMoon icon"]
+        WAKE["Waking\nSunrise icon"]
+        BATT["Battery Low\nBattery icon"]
+        ERR["Error\nX icon"]
     end
     
     subgraph Actions [User Actions]

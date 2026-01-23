@@ -69,17 +69,17 @@ flowchart TD
         B -->|No| C[Fetch data directly]
         C --> D[Update status: ACTIVE]
         
-        B -->|Yes| E["Pre-wake triggered<br/>30 seconds early"]
-        E --> F["Turn relay ON<br/>Status: WAKING"]
-        F --> G["Wait for WiFi<br/>~25 seconds"]
+        B -->|Yes| E["Pre-wake triggered\n30 seconds early"]
+        E --> F["Turn relay ON\nStatus: WAKING"]
+        F --> G["Wait for WiFi\n~25 seconds"]
         G --> H[Scheduler triggers poll]
         H --> I[Fetch sensor data]
         I --> J{Fetch successful?}
-        J -->|Yes| K["Turn relay OFF<br/>Status: SLEEPING"]
+        J -->|Yes| K["Turn relay OFF\nStatus: SLEEPING"]
         J -->|No| L[Check voltage meter]
         L --> M{Load ON?}
-        M -->|No| N["Status: OFFLINE<br/>Reason: battery_low"]
-        M -->|Yes| O["Status: ERROR<br/>Reason: wifi_error"]
+        M -->|No| N["Status: OFFLINE\nReason: battery_low"]
+        M -->|Yes| O["Status: ERROR\nReason: wifi_error"]
     end
 ```
 
@@ -247,11 +247,11 @@ When a sensor cannot be reached, the system checks the Voltage Meter to determin
 ```mermaid
 flowchart TD
     A[Sensor fetch failed] --> B{Linked Voltage Meter?}
-    B -->|No| C["Status: ERROR<br/>Generic error"]
+    B -->|No| C["Status: ERROR\nGeneric error"]
     B -->|Yes| D[Query Voltage Meter]
     D --> E{Load relay ON?}
-    E -->|No| F["Status: OFFLINE<br/>Reason: battery_low<br/>'Battery Low - Sensor powered off'"]
-    E -->|Yes| G["Status: ERROR<br/>Reason: wifi_error<br/>'WiFi/Network Error - Power ON but not responding'"]
+    E -->|No| F["Status: OFFLINE\nReason: battery_low\nBattery Low - Sensor powered off"]
+    E -->|Yes| G["Status: ERROR\nReason: wifi_error\nWiFi/Network Error - Power ON but not responding"]
 ```
 
 ## File Structure
