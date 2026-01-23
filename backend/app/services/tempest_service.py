@@ -29,10 +29,13 @@ Author: Frank Kusi Appiah
 
 import httpx
 import os
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.models import TempestReading
+
+logger = logging.getLogger(__name__)
 
 
 def safe_float(value, default: float = 0.0) -> float:
@@ -379,11 +382,15 @@ class TempestService:
                 "error_message": str(e)
             }
         except Exception as e:
+            # Capture full exception details
+            error_type_name = type(e).__name__
+            error_msg = str(e) if str(e) else repr(e)
+            logger.error(f"[{sensor_name}] Unexpected error ({error_type_name}): {error_msg}")
             return {
                 "status": "error",
                 "sensor_name": sensor_name,
                 "error_type": "unknown_error",
-                "error_message": str(e)
+                "error_message": f"{error_type_name}: {error_msg}" if error_msg else error_type_name
             }
     
     

@@ -334,13 +334,23 @@ class PurpleAirService:
                     "csv_size_bytes": csv_size,
                     "row_count": row_count
                 }
+            except httpx.ConnectError as e:
+                logger.error(f"[{sensor_name}] Upload connection error: {e}")
+                raise
+            except httpx.TimeoutException as e:
+                logger.error(f"[{sensor_name}] Upload timeout: {type(e).__name__}: {e}")
+                raise
+            except httpx.RequestError as e:
+                # Catches all httpx request errors (network, protocol, etc.)
+                logger.error(f"[{sensor_name}] Upload request error: {type(e).__name__}: {e}")
+                raise
             except httpx.HTTPStatusError as e:
                 # Log detailed error information
                 error_body = ""
                 try:
                     error_body = e.response.text[:500]  # First 500 chars of error response
-                except:
-                    pass
+                except Exception as read_err:
+                    error_body = f"(Could not read response body: {read_err})"
                 
                 # Retry on server errors (502, 503, 504)
                 if e.response.status_code in [502, 503, 504] and attempt < max_retries - 1:
@@ -349,14 +359,23 @@ class PurpleAirService:
                     await asyncio.sleep(retry_delay)
                     continue
                 
+                # Log comprehensive error details
                 logger.error(
                     f"[{sensor_name}] Upload failed - HTTP {e.response.status_code}\n"
-                    f"Response: {error_body}\n"
+                    f"URL: {self.UPLOAD_URL}\n"
+                    f"Response headers: {dict(e.response.headers)}\n"
+                    f"Response body: {error_body}\n"
                     f"CSV preview: {csv_preview}"
                 )
                 raise
             except Exception as e:
-                logger.error(f"[{sensor_name}] Upload error: {str(e)}\nCSV preview: {csv_preview}")
+                # Capture full exception details including type
+                error_type = type(e).__name__
+                error_msg = str(e) if str(e) else repr(e)
+                logger.error(
+                    f"[{sensor_name}] Upload error ({error_type}): {error_msg}\n"
+                    f"CSV preview: {csv_preview}"
+                )
                 raise
     
     
@@ -468,12 +487,15 @@ class PurpleAirService:
                 "error_response": error_body
             }
         except Exception as e:
-            # Something else went wrong
+            # Something else went wrong - capture full details
+            error_type_name = type(e).__name__
+            error_msg = str(e) if str(e) else repr(e)
+            logger.error(f"[{sensor_name}] Unexpected error ({error_type_name}): {error_msg}")
             return {
                 "status": "error",
                 "sensor_name": sensor_name,
                 "error_type": "unknown_error",
-                "error_message": str(e)
+                "error_message": f"{error_type_name}: {error_msg}" if error_msg else error_type_name
             }
     
     

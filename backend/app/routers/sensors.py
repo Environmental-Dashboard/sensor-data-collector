@@ -690,3 +690,40 @@ async def set_power_mode(
         raise HTTPException(status_code=404, detail="Sensor not found")
     
     return result
+
+
+# =============================================================================
+# EMAIL STATUS REPORT
+# =============================================================================
+
+@router.post("/email/status-report", tags=["Email"])
+async def send_status_report_email(manager = Depends(get_sensor_manager)):
+    """
+    Send an email with the current status of all sensors.
+    
+    Sends to the configured ALERT_EMAIL (dashboard@oberlin.edu by default).
+    """
+    sensors = manager.get_all_sensors()
+    
+    # Convert to list of dicts for the email service
+    sensor_list = []
+    for s in sensors:
+        sensor_list.append({
+            "id": s.id,
+            "name": s.name,
+            "sensor_type": s.sensor_type.value,
+            "status": s.status.value,
+            "location": s.location,
+            "last_error": s.last_error,
+            "last_active": s.last_active.isoformat() if s.last_active else None,
+        })
+    
+    success = manager.email_service.send_status_report(sensor_list)
+    
+    if success:
+        return {"status": "success", "message": f"Status report sent to {manager.email_service.alert_email}"}
+    else:
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to send status report. Check email configuration."
+        )

@@ -64,6 +64,7 @@ from app.models import (
 from app.services.purple_air_service import PurpleAirService
 from app.services.tempest_service import TempestService
 from app.services.voltage_meter_service import VoltageMeterService
+from app.services.email_service import EmailService
 
 
 class SensorManager:
@@ -102,6 +103,9 @@ class SensorManager:
         self.tempest_service = tempest_service
         self.voltage_meter_service = voltage_meter_service
         self.polling_interval = polling_interval
+        
+        # Email service for sending alerts
+        self.email_service = EmailService()
         
         # This is where we store all sensors in memory
         self._sensors: dict[str, dict] = {}
@@ -398,6 +402,83 @@ class SensorManager:
         return True
     
     
+    def _update_sensor_status(
+        self, 
+        sensor: dict, 
+        new_status: SensorStatus, 
+        error_message: Optional[str] = None,
+        error_type: Optional[str] = None
+    ):
+        """
+        Update sensor status and send email alert if needed.
+        
+        This handles:
+        - Status transitions (error -> active, active -> error, etc.)
+        - Email alerts on errors
+        - Recovery notifications when sensor comes back online
+        """
+        old_status_raw = sensor.get("status")
+        sensor_id = sensor.get("id")
+        sensor_name = sensor.get("name", "Unknown")
+        sensor_type = str(sensor.get("sensor_type", "unknown"))
+        location = sensor.get("location")
+        
+        # Normalize old_status to string for comparison (handles both enum and string)
+        if isinstance(old_status_raw, SensorStatus):
+            old_status = old_status_raw.value
+        else:
+            old_status = str(old_status_raw) if old_status_raw else ""
+        
+        new_status_str = new_status.value
+        
+        # Skip if status hasn't changed
+        if old_status == new_status_str:
+            # Just update error message if provided
+            if error_message:
+                sensor["last_error"] = error_message
+            return
+        
+        # Update status
+        sensor["status"] = new_status
+        sensor["status_reason"] = error_type
+        sensor["last_error"] = error_message
+        
+        logger.debug(f"[{sensor_name}] Status transition: {old_status} -> {new_status_str}")
+        
+        # Define status categories (as strings for comparison)
+        error_statuses = ["error", "inactive", "offline"]
+        ok_statuses = ["active", "sleeping", "waking"]
+        
+        # Check if we need to send an alert
+        is_error_status = new_status_str in error_statuses
+        was_ok_before = old_status in ok_statuses
+        
+        # Send error alert if transitioning to error/inactive state
+        if is_error_status and was_ok_before and error_message:
+            logger.warning(f"[{sensor_name}] Status changed: {old_status} -> {new_status_str}")
+            self.email_service.send_sensor_error_alert(
+                sensor_id=sensor_id,
+                sensor_name=sensor_name,
+                sensor_type=sensor_type,
+                error_message=error_message,
+                status=new_status_str,
+                location=location
+            )
+        
+        # Send recovery alert if coming back online
+        was_error_before = old_status in error_statuses
+        is_ok_now = new_status_str in ["active", "sleeping"]
+        
+        if was_error_before and is_ok_now:
+            logger.info(f"[{sensor_name}] Recovered: {old_status} -> {new_status_str}")
+            self.email_service.send_sensor_recovery_alert(
+                sensor_id=sensor_id,
+                sensor_name=sensor_name,
+                sensor_type=sensor_type,
+                location=location
+            )
+    
+    
     # =========================================================================
     # TURNING SENSORS ON/OFF
     # =========================================================================
@@ -625,27 +706,27 @@ class SensorManager:
             
             # Handle result
             if result["status"] == "success":
-                sensor["status"] = SensorStatus.SLEEPING
-                sensor["status_reason"] = None
+                self._update_sensor_status(sensor, SensorStatus.SLEEPING)
                 sensor["last_active"] = datetime.now(timezone.utc)
-                sensor["last_error"] = None
                 if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
                     sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
             else:
                 # Smart error detection - pass power_mode so it knows load OFF might be expected
                 result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
-                sensor["last_error"] = result.get("error_message", "Unknown error")
-                sensor["status_reason"] = result.get("error_type")
+                error_type = result.get("error_type")
+                error_msg = result.get("error_message", "Unknown error")
                 
-                if result.get("error_type") == "battery_low":
-                    sensor["status"] = SensorStatus.OFFLINE
-                elif result.get("error_type") == "sleeping":
+                if error_type == "battery_low":
+                    self._update_sensor_status(sensor, SensorStatus.OFFLINE, error_msg, error_type)
+                elif error_type == "sleeping":
                     # In power saving mode, load OFF with good voltage = sleeping (not an error)
-                    sensor["status"] = SensorStatus.SLEEPING
-                    sensor["status_reason"] = None
-                    sensor["last_error"] = None
+                    self._update_sensor_status(sensor, SensorStatus.SLEEPING)
+                elif error_type in ["connection_error", "timeout"]:
+                    # Not responding = INACTIVE (not error)
+                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
                 else:
-                    sensor["status"] = SensorStatus.ERROR
+                    # Real errors (cloud_error, data_error, etc.)
+                    self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
                 
                 if result.get("battery_voltage") is not None:
                     sensor["battery_volts"] = result["battery_voltage"]
@@ -658,10 +739,8 @@ class SensorManager:
             )
             
             if result["status"] == "success":
-                sensor["status"] = SensorStatus.ACTIVE
-                sensor["status_reason"] = None
+                self._update_sensor_status(sensor, SensorStatus.ACTIVE)
                 sensor["last_active"] = datetime.now(timezone.utc)
-                sensor["last_error"] = None
                 if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
                     sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
             else:
@@ -669,15 +748,17 @@ class SensorManager:
                 if voltage_meter:
                     result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
                 
-                sensor["last_error"] = result.get("error_message", "Unknown error")
-                sensor["status_reason"] = result.get("error_type")
+                error_type = result.get("error_type")
+                error_msg = result.get("error_message", "Unknown error")
                 
-                if result.get("error_type") == "battery_low":
-                    sensor["status"] = SensorStatus.OFFLINE
-                elif result.get("error_type") == "cloud_error":
-                    sensor["status"] = SensorStatus.ERROR
+                if error_type == "battery_low":
+                    self._update_sensor_status(sensor, SensorStatus.OFFLINE, error_msg, error_type)
+                elif error_type in ["connection_error", "timeout"]:
+                    # Not responding = INACTIVE (not error)
+                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
                 else:
-                    sensor["status"] = SensorStatus.ERROR
+                    # Real errors (cloud_error, data_error, etc.)
+                    self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         
         self._save_to_file()
     
@@ -760,17 +841,21 @@ class SensorManager:
         )
         
         if result["status"] == "success":
-            sensor["status"] = SensorStatus.ACTIVE
-            sensor["status_reason"] = None
+            self._update_sensor_status(sensor, SensorStatus.ACTIVE)
             sensor["last_active"] = datetime.now(timezone.utc)
-            sensor["last_error"] = None
             # Update battery voltage from reading
             if result.get("reading") and result["reading"].get("battery_volts"):
                 sensor["battery_volts"] = result["reading"]["battery_volts"]
         else:
-            sensor["status"] = SensorStatus.ERROR
-            sensor["status_reason"] = result.get("error_type")
-            sensor["last_error"] = result.get("error_message", "Unknown error")
+            error_type = result.get("error_type")
+            error_msg = result.get("error_message", "Unknown error")
+            
+            if error_type in ["connection_error", "timeout"]:
+                # API not responding = INACTIVE
+                self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+            else:
+                # Real errors (cloud_error, data_error, etc.)
+                self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         
         self._save_to_file()
     
@@ -788,10 +873,8 @@ class SensorManager:
         )
         
         if result["status"] == "success":
-            sensor["status"] = SensorStatus.ACTIVE
-            sensor["status_reason"] = None
+            self._update_sensor_status(sensor, SensorStatus.ACTIVE)
             sensor["last_active"] = datetime.now(timezone.utc)
-            sensor["last_error"] = None
             # Update battery voltage and relay status from reading
             reading = result.get("reading", {})
             if reading.get("voltage_v") is not None:
@@ -808,9 +891,15 @@ class SensorManager:
             if result.get("csv_sample"):
                 sensor["last_csv_sample"] = result["csv_sample"]
         else:
-            sensor["status"] = SensorStatus.ERROR
-            sensor["status_reason"] = result.get("error_type")
-            sensor["last_error"] = result.get("error_message", "Unknown error")
+            error_type = result.get("error_type")
+            error_msg = result.get("error_message", "Unknown error")
+            
+            if error_type in ["connection_error", "timeout"]:
+                # Not responding = INACTIVE
+                self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+            else:
+                # Real errors (cloud_error, etc.)
+                self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         
         self._save_to_file()
     
