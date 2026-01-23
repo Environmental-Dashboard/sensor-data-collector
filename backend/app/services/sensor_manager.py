@@ -459,6 +459,8 @@ class SensorManager:
         interval = frequency or sensor.get("polling_frequency") or self.polling_interval
         job_id = f"poll_{sensor_id}"
         
+        print(f"[{sensor.get('name', sensor_id)}] Starting poll job (interval: {interval}s)")
+        
         self.scheduler.add_job(
             callback,
             trigger=IntervalTrigger(seconds=interval),
@@ -468,9 +470,16 @@ class SensorManager:
         )
         
         # For power saving mode, also schedule pre-wake job
-        if sensor and sensor.get("sensor_type") == SensorType.PURPLE_AIR:
-            if sensor.get("power_mode") == PowerMode.POWER_SAVING.value:
-                self._schedule_pre_wake(sensor_id, interval)
+        sensor_type = sensor.get("sensor_type")
+        power_mode = sensor.get("power_mode")
+        is_purple_air = sensor_type == SensorType.PURPLE_AIR or sensor_type == SensorType.PURPLE_AIR.value
+        is_power_saving = power_mode == PowerMode.POWER_SAVING.value
+        
+        print(f"[{sensor.get('name', sensor_id)}] sensor_type={sensor_type}, power_mode={power_mode}, is_purple_air={is_purple_air}, is_power_saving={is_power_saving}")
+        
+        if is_purple_air and is_power_saving:
+            print(f"[{sensor.get('name', sensor_id)}] Scheduling pre-wake job...")
+            self._schedule_pre_wake(sensor_id, interval)
     
     
     def _schedule_pre_wake(self, sensor_id: str, poll_interval: int):
