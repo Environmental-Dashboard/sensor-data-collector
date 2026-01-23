@@ -60,6 +60,7 @@ function timeAgo(timestamp: string | null): string {
 const tabs = [
   { id: 'purple_air' as SensorType, label: 'Air Quality', icon: Wind, color: 'purple' },
   { id: 'tempest' as SensorType, label: 'Weather', icon: CloudSun, color: 'cyan' },
+  { id: 'voltage_meter' as SensorType, label: 'Battery Monitor', icon: Battery, color: 'green' },
   { id: 'water_quality' as SensorType, label: 'Water Quality', icon: Droplets, color: 'blue' },
   { id: 'do_sensor' as SensorType, label: 'DO Sensor', icon: Database, color: 'amber' },
 ];
@@ -69,25 +70,6 @@ interface Toast {
   id: string;
   type: 'success' | 'error';
   message: string;
-}
-
-// Helper to safely extract error message from any value (prevents [object Object])
-function safeErrorMessage(value: any, fallback: string): string {
-  if (typeof value === 'string') return value;
-  if (value === null || value === undefined) return fallback;
-  if (typeof value === 'object') {
-    if (value.message && typeof value.message === 'string') return value.message;
-    if (value.error && typeof value.error === 'string') return value.error;
-    if (value.detail && typeof value.detail === 'string') return value.detail;
-    // Don't return [object Object]
-    try {
-      const str = JSON.stringify(value);
-      return str !== '{}' ? str : fallback;
-    } catch {
-      return fallback;
-    }
-  }
-  return String(value) || fallback;
 }
 
 export default function App() {
@@ -148,7 +130,7 @@ export default function App() {
       showToast('success', `${sensor.name} is now active!`);
       fetchSensors();
     } catch (e: any) {
-      const msg = safeErrorMessage(e?.message, 'Failed to turn on sensor');
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to turn on sensor';
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -161,7 +143,7 @@ export default function App() {
       showToast('success', `${sensor.name} stopped`);
       fetchSensors();
     } catch (e: any) {
-      const msg = safeErrorMessage(e?.message, 'Failed to turn off sensor');
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to turn off sensor';
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -175,17 +157,18 @@ export default function App() {
         showToast('success', `✓ ${sensor.name} is active and working!`);
       } else if (result.status === 'info') {
         // Tempest auto-push info message
-        const msg = safeErrorMessage(result.message, 'Sensor is working');
+        const msg = typeof result.message === 'string' ? result.message : 'Sensor is working';
         showToast('success', msg);
       } else {
         // Handle error - make sure we get a string
-        const errorMsg = safeErrorMessage(result.error_message, '') 
-          || safeErrorMessage(result.message, 'Ping failed');
+        const errorMsg = typeof result.error_message === 'string' 
+          ? result.error_message 
+          : (typeof result.message === 'string' ? result.message : 'Ping failed');
         showToast('error', errorMsg);
       }
       fetchSensors();
     } catch (e: any) {
-      const errorMsg = safeErrorMessage(e?.message, 'An error occurred');
+      const errorMsg = typeof e.message === 'string' ? e.message : 'An error occurred';
       showToast('error', errorMsg);
     }
     setActionLoading(null);
@@ -199,7 +182,51 @@ export default function App() {
       showToast('success', `${sensor.name} deleted`);
       fetchSensors();
     } catch (e: any) {
-      const msg = safeErrorMessage(e?.message, 'Failed to delete sensor');
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to delete sensor';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
+  // Relay control for voltage meters
+  const handleRelayControl = async (sensor: Sensor, mode: 'auto' | 'on' | 'off') => {
+    setActionLoading(sensor.id);
+    try {
+      await api.setRelayMode(sensor.id, mode);
+      const modeLabel = mode === 'auto' ? 'Automatic' : mode === 'on' ? 'Force ON' : 'Force OFF';
+      showToast('success', `Relay set to ${modeLabel}`);
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to set relay mode';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
+  // Power mode change for Purple Air
+  const handlePowerModeChange = async (sensor: Sensor, mode: 'normal' | 'power_saving') => {
+    setActionLoading(sensor.id);
+    try {
+      await api.setPowerMode(sensor.id, mode);
+      const modeLabel = mode === 'normal' ? 'Normal' : 'Power Saving';
+      showToast('success', `Power mode set to ${modeLabel}`);
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to set power mode';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
+  // Frequency change for sensors
+  const handleFrequencyChange = async (sensor: Sensor, minutes: number) => {
+    setActionLoading(sensor.id);
+    try {
+      await api.setPollingFrequency(sensor.id, minutes);
+      showToast('success', `Poll frequency set to ${minutes} minutes`);
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to set frequency';
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -224,7 +251,7 @@ export default function App() {
   const currentSensors = sensors.filter(s => s.sensor_type === activeTab);
   const activeCount = currentSensors.filter(s => s.is_active).length;
   const currentTab = tabs.find(t => t.id === activeTab)!;
-  const isImplemented = activeTab === 'purple_air' || activeTab === 'tempest';
+  const isImplemented = activeTab === 'purple_air' || activeTab === 'tempest' || activeTab === 'voltage_meter';
 
   if (loading) {
     return (
@@ -337,6 +364,10 @@ export default function App() {
                     onFetchNow={() => handleFetchNow(sensor)}
                     onDelete={() => handleDelete(sensor)}
                     loading={actionLoading === sensor.id}
+                    onRelayControl={sensor.sensor_type === 'voltage_meter' ? (mode) => handleRelayControl(sensor, mode) : undefined}
+                    onPowerModeChange={sensor.sensor_type === 'purple_air' ? (mode) => handlePowerModeChange(sensor, mode) : undefined}
+                    onFrequencyChange={sensor.sensor_type === 'purple_air' ? (minutes) => handleFrequencyChange(sensor, minutes) : undefined}
+                    relayLoading={actionLoading === sensor.id}
                   />
                 ))}
               </div>
@@ -377,9 +408,14 @@ interface SensorCardProps {
   onFetchNow: () => void;
   onDelete: () => void;
   loading: boolean;
+  onRelayControl?: (mode: 'auto' | 'on' | 'off') => void;
+  onPowerModeChange?: (mode: 'normal' | 'power_saving') => void;
+  onFrequencyChange?: (minutes: number) => void;
+  relayLoading?: boolean;
 }
 
-function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading }: SensorCardProps) {
+function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, relayLoading }: SensorCardProps) {
+  const [showSettings, setShowSettings] = useState(false);
   return (
     <div className={`sensor-card ${sensor.status}`}>
       <div className="sensor-card-header">
@@ -487,10 +523,94 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <Play size={16} /> Ping
           </button>
         )}
+        {/* Settings button for Purple Air with power mode */}
+        {sensor.sensor_type === 'purple_air' && onPowerModeChange && (
+          <button className="btn btn-icon" onClick={() => setShowSettings(!showSettings)} title="Settings">
+            <Zap size={16} />
+          </button>
+        )}
         <button className="btn btn-icon btn-danger" onClick={onDelete} disabled={loading}>
           <Trash2 size={16} />
         </button>
       </div>
+
+      {/* Relay Control for Voltage Meters */}
+      {sensor.sensor_type === 'voltage_meter' && onRelayControl && (
+        <div className="relay-control">
+          <div className="relay-control-header">
+            <Zap size={14} />
+            <span>Relay Control</span>
+          </div>
+          <div className="relay-buttons">
+            <button 
+              className="btn btn-sm" 
+              onClick={() => onRelayControl('auto')}
+              disabled={relayLoading}
+              title="Let the voltage meter decide based on battery thresholds"
+            >
+              Automatic
+            </button>
+            <button 
+              className="btn btn-sm btn-success" 
+              onClick={() => onRelayControl('on')}
+              disabled={relayLoading}
+              title="Force the relay ON (power the sensor)"
+            >
+              Force ON
+            </button>
+            <button 
+              className="btn btn-sm btn-danger" 
+              onClick={() => onRelayControl('off')}
+              disabled={relayLoading}
+              title="Force the relay OFF (cut power)"
+            >
+              Force OFF
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Power Mode Settings for Purple Air */}
+      {showSettings && sensor.sensor_type === 'purple_air' && onPowerModeChange && onFrequencyChange && (
+        <div className="sensor-settings">
+          <div className="settings-section">
+            <div className="settings-label">Power Mode</div>
+            <div className="settings-buttons">
+              <button 
+                className={`btn btn-sm ${sensor.power_mode !== 'power_saving' ? 'btn-primary' : ''}`}
+                onClick={() => onPowerModeChange('normal')}
+                disabled={loading}
+              >
+                Normal
+              </button>
+              <button 
+                className={`btn btn-sm ${sensor.power_mode === 'power_saving' ? 'btn-primary' : ''}`}
+                onClick={() => onPowerModeChange('power_saving')}
+                disabled={loading}
+              >
+                Power Saving
+              </button>
+            </div>
+          </div>
+          {sensor.power_mode === 'power_saving' && (
+            <div className="settings-section">
+              <div className="settings-label">Poll Frequency</div>
+              <div className="settings-buttons frequency-buttons">
+                {[5, 10, 15, 30, 60].map(mins => (
+                  <button 
+                    key={mins}
+                    className={`btn btn-sm ${(sensor as any).polling_frequency === mins * 60 ? 'btn-primary' : ''}`}
+                    onClick={() => onFrequencyChange(mins)}
+                    disabled={loading}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -536,7 +656,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
         await onSubmit({ device_id: deviceId, location, upload_token: token });
       }
     } catch (e: any) {
-      const msg = safeErrorMessage(e?.message, 'Failed to add sensor');
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to add sensor';
       setError(msg);
       setLoading(false);
     }

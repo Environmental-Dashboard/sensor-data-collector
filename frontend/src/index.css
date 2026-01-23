@@ -1037,6 +1037,108 @@ html:not(.dark) .form-error {
 /* ============================================
    RESPONSIVE
    ============================================ */
+/* ============================================
+   RELAY CONTROL (Voltage Meters)
+   ============================================ */
+.relay-control {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.relay-control-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.relay-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.relay-buttons .btn {
+  flex: 1;
+}
+
+/* ============================================
+   SENSOR SETTINGS (Purple Air Power Mode)
+   ============================================ */
+.sensor-settings {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.settings-section {
+  margin-bottom: 16px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-buttons .btn {
+  flex: 1;
+}
+
+.frequency-buttons {
+  flex-wrap: wrap;
+}
+
+.frequency-buttons .btn {
+  flex: 0 0 auto;
+  min-width: 48px;
+}
+
+/* Small button variant */
+.btn-sm {
+  font-size: 0.75rem;
+  padding: 8px 12px;
+}
+
+/* Green tab color */
+.tab.active.green {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.content-header.green {
+  background: var(--bg-secondary);
+}
+
+.content-header.green .content-icon {
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
 @media (max-width: 768px) {
   .header {
     padding: 14px 20px;
@@ -1092,6 +1194,11 @@ html:not(.dark) .form-error {
 
   .sensor-actions .btn {
     flex: 1 1 auto;
+  }
+
+  .relay-buttons,
+  .settings-buttons {
+    flex-wrap: wrap;
   }
 
   .toast-container {

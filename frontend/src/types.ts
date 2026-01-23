@@ -21,6 +21,7 @@ export interface Sensor {
   linked_sensor_id: string | null;  // For voltage meters - linked Purple Air sensor
   linked_sensor_name: string | null;  // For voltage meters - linked sensor name
   power_mode: PowerMode | null;  // For Purple Air - normal or power_saving
+  polling_frequency: number | null;  // Polling frequency in seconds
 }
 
 // List response

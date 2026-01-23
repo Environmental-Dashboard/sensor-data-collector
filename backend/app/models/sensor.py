@@ -312,6 +312,7 @@ class SensorResponse(BaseModel):
     linked_sensor_id: Optional[str] = Field(None, description="Linked sensor ID (for Voltage Meters)")
     linked_sensor_name: Optional[str] = Field(None, description="Linked sensor name (for Voltage Meters)")
     power_mode: Optional[str] = Field(None, description="Power mode: normal or power_saving (Purple Air)")
+    polling_frequency: Optional[int] = Field(None, description="Polling frequency in seconds")
 
 
 class SensorListResponse(BaseModel):
