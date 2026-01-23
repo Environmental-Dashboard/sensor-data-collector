@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Wind, CloudSun, Droplets, Database, Zap,
   Plus, Power, PowerOff, Play, Trash2, X,
@@ -511,8 +511,31 @@ interface SensorCardProps {
 function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, relayLoading, voltageMeterSensors, onLinkVoltageMeter }: SensorCardProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Close menu and settings when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      
+      // Close menu if clicking outside menu container
+      if (showMenu && menuRef.current && !menuRef.current.contains(target)) {
+        setShowMenu(false);
+      }
+      
+      // Close settings if clicking outside the entire card
+      if (showSettings && cardRef.current && !cardRef.current.contains(target)) {
+        setShowSettings(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu, showSettings]);
+
   return (
-    <div className={`sensor-card ${sensor.status}`}>
+    <div className={`sensor-card ${sensor.status}`} ref={cardRef}>
       <div className="sensor-card-header">
         <div>
           <h3 className="sensor-name">{sensor.name}</h3>
@@ -625,12 +648,12 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
           </button>
         )}
         {/* Three-dot options menu */}
-        <div className="menu-container">
+        <div className="menu-container" ref={menuRef}>
           <button className="btn btn-icon" onClick={() => setShowMenu(!showMenu)} title="More options">
             <MoreVertical size={16} />
           </button>
           {showMenu && (
-            <div className="dropdown-menu" onClick={() => setShowMenu(false)}>
+            <div className="dropdown-menu">
               {onViewLastData && (
                 <button className="dropdown-item" onClick={onViewLastData}>
                   <Eye size={14} /> View Last Sent Data

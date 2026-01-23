@@ -1138,35 +1138,57 @@ html:not(.dark) .form-error {
   position: relative;
 }
 
+.menu-container {
+  position: relative;
+}
+
 .dropdown-menu {
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 4px;
-  min-width: 180px;
+  margin-top: 8px;
+  min-width: 200px;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
-  z-index: 50;
-  animation: fadeIn 0.15s ease;
+  z-index: 100;
+  animation: dropdownSlide 0.2s ease;
   overflow: hidden;
+  padding: 6px 0;
+}
+
+@keyframes dropdownSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .dropdown-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   padding: 12px 16px;
   background: transparent;
   border: none;
   font-family: inherit;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
-  transition: all 0.1s ease;
+  transition: all 0.15s ease;
+}
+
+.dropdown-item svg {
+  color: var(--text-muted);
+  transition: color 0.15s ease;
 }
 
 .dropdown-item:hover {
@@ -1174,8 +1196,20 @@ html:not(.dark) .form-error {
   color: var(--text-primary);
 }
 
+.dropdown-item:hover svg {
+  color: var(--text-primary);
+}
+
 .dropdown-item.danger {
   color: var(--error);
+}
+
+.dropdown-item.danger svg {
+  color: var(--error);
+}
+
+.dropdown-item.danger:hover {
+  background: var(--error-dim);
 }
 
 .dropdown-item.danger:hover {
@@ -1185,7 +1219,7 @@ html:not(.dark) .form-error {
 .dropdown-divider {
   height: 1px;
   background: var(--border-subtle);
-  margin: 4px 0;
+  margin: 8px 12px;
 }
 
 /* ============================================
@@ -1300,10 +1334,12 @@ html:not(.dark) .form-error {
   .dropdown-menu {
     position: fixed;
     top: auto;
-    bottom: 80px;
-    right: 20px;
-    left: 20px;
+    bottom: 20px;
+    right: 16px;
+    left: 16px;
     min-width: auto;
+    border-radius: var(--radius);
+    padding: 8px 0;
   }
 
   .modal {
