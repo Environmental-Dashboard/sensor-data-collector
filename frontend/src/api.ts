@@ -1,4 +1,4 @@
-import type { Sensor, SensorListResponse, AddPurpleAirRequest, AddTempestRequest } from './types';
+import type { Sensor, SensorListResponse, AddPurpleAirRequest, AddTempestRequest, AddVoltageMeterRequest } from './types';
 
 // Use environment variable for API URL, fallback to localhost for development
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -38,6 +38,9 @@ export const addPurpleAirSensor = (data: AddPurpleAirRequest) =>
 
 export const addTempestSensor = (data: AddTempestRequest) =>
   api<Sensor>('/api/sensors/tempest', { method: 'POST', body: JSON.stringify(data) });
+
+export const addVoltageMeter = (data: AddVoltageMeterRequest) =>
+  api<Sensor>('/api/sensors/voltage-meter', { method: 'POST', body: JSON.stringify(data) });
 
 // Sensor actions
 export const getSensor = (id: string) => api<Sensor>(`/api/sensors/${id}`);

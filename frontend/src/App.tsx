@@ -6,7 +6,7 @@ import {
   Sun, Moon, Battery, Cloud, Sunrise, Settings, MoreVertical,
   Edit, Link, RefreshCw, Eye
 } from 'lucide-react';
-import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest } from './types';
+import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest, AddVoltageMeterRequest } from './types';
 import * as api from './api';
 import iconImage from './images/icon.png';
 
@@ -303,12 +303,14 @@ export default function App() {
     setActionLoading(null);
   };
 
-  const handleAddSensor = async (data: AddPurpleAirRequest | AddTempestRequest) => {
+  const handleAddSensor = async (data: AddPurpleAirRequest | AddTempestRequest | AddVoltageMeterRequest) => {
     try {
       if (activeTab === 'purple_air') {
         await api.addPurpleAirSensor(data as AddPurpleAirRequest);
       } else if (activeTab === 'tempest') {
         await api.addTempestSensor(data as AddTempestRequest);
+      } else if (activeTab === 'voltage_meter') {
+        await api.addVoltageMeter(data as AddVoltageMeterRequest);
       }
       showToast('success', 'Sensor added!');
       setModalOpen(false);
@@ -842,6 +844,11 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
         setError('Device ID, Location, and Upload Token are required');
         return;
       }
+    } else if (type === 'voltage_meter') {
+      if (!ip || !location || !token) {
+        setError('IP Address, Location, and Upload Token are required');
+        return;
+      }
     }
 
     setLoading(true);
@@ -850,6 +857,8 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
         await onSubmit({ ip_address: ip, name, location, upload_token: token });
       } else if (type === 'tempest') {
         await onSubmit({ device_id: deviceId, location, upload_token: token });
+      } else if (type === 'voltage_meter') {
+        await onSubmit({ ip_address: ip, name: name || undefined, location, upload_token: token });
       }
     } catch (e: any) {
       const msg = typeof e.message === 'string' ? e.message : 'Failed to add sensor';
@@ -865,6 +874,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
           <h2>
             {type === 'purple_air' && 'Add Air Quality Sensor'}
             {type === 'tempest' && 'Add Weather Station'}
+            {type === 'voltage_meter' && 'Add Battery Monitor'}
             {type === 'water_quality' && 'Add Water Quality Sensor'}
             {type === 'do_sensor' && 'Add DO Sensor'}
           </h2>
@@ -887,6 +897,22 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
                   disabled={loading}
                 />
                 <p className="form-hint">Find this in your router or PurpleAir app</p>
+              </div>
+            )}
+
+            {/* Voltage Meter: IP Address */}
+            {type === 'voltage_meter' && (
+              <div className="form-group">
+                <label className="form-label">IP Address</label>
+                <input
+                  type="text"
+                  className="form-input mono"
+                  placeholder="192.168.1.100"
+                  value={ip}
+                  onChange={e => setIp(e.target.value)}
+                  disabled={loading}
+                />
+                <p className="form-hint">The ESP32's IP address on your network</p>
               </div>
             )}
 
@@ -918,6 +944,22 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
                   onChange={e => setName(e.target.value)}
                   disabled={loading}
                 />
+              </div>
+            )}
+
+            {/* Voltage Meter: Name (optional) */}
+            {type === 'voltage_meter' && (
+              <div className="form-group">
+                <label className="form-label">Name (optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Auto-generated if left blank"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  disabled={loading}
+                />
+                <p className="form-hint">Leave blank to auto-generate from linked sensor</p>
               </div>
             )}
 
