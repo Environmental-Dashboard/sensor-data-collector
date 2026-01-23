@@ -350,7 +350,7 @@ async def update_sensor(sensor_id: str, request: UpdateSensorRequest, manager = 
         if value is not None and hasattr(sensor, key):
             setattr(sensor, key, value)
     
-    manager._save_sensors()
+    manager._save_to_file()
     return sensor
 
 
