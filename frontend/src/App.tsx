@@ -447,18 +447,11 @@ export default function App() {
 
       {/* Last Data Modal */}
       {lastDataModal.open && lastDataModal.sensor && (
-        <div className="modal-overlay" onClick={() => setLastDataModal({ open: false, sensor: null, data: null })}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Last Sent Data</h2>
-              <button className="modal-close" onClick={() => setLastDataModal({ open: false, sensor: null, data: null })}><X size={20} /></button>
-            </div>
-            <div className="modal-body">
-              <p className="form-hint" style={{marginBottom: '12px'}}>{lastDataModal.sensor.name}</p>
-              <pre className="data-preview">{lastDataModal.data}</pre>
-            </div>
-          </div>
-        </div>
+        <LastDataModal
+          sensor={lastDataModal.sensor}
+          data={lastDataModal.data}
+          onClose={() => setLastDataModal({ open: false, sensor: null, data: null })}
+        />
       )}
 
       {/* Edit Sensor Modal */}
@@ -1052,6 +1045,122 @@ function ThresholdsModal({ sensor, onClose, onSave, loading }: ThresholdsModalPr
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Last Data Modal - Shows CSV data in a nice table
+interface LastDataModalProps {
+  sensor: Sensor;
+  data: string | null;
+  onClose: () => void;
+}
+
+function LastDataModal({ sensor, data, onClose }: LastDataModalProps) {
+  // Parse CSV into headers and rows
+  const parseCSV = (csv: string | null): { headers: string[]; rows: string[][] } => {
+    if (!csv) return { headers: [], rows: [] };
+    
+    const lines = csv.trim().split('\n');
+    if (lines.length === 0) return { headers: [], rows: [] };
+    
+    const headers = lines[0].split(',').map(h => h.trim());
+    const rows = lines.slice(1).map(line => line.split(',').map(cell => cell.trim()));
+    
+    return { headers, rows };
+  };
+
+  const { headers, rows } = parseCSV(data);
+
+  // Format header names to be more readable
+  const formatHeader = (header: string): string => {
+    // Remove units in parentheses for display, keep them as tooltip
+    return header
+      .replace(/\s*\([^)]*\)/g, '')  // Remove parentheses content
+      .replace(/:/g, '')              // Remove colons
+      .trim();
+  };
+
+  // Format cell values nicely
+  const formatValue = (value: string, header: string): string => {
+    // Check if it's a number
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      // Temperature, voltage, pressure - show 1-2 decimals
+      if (header.includes('Temp') || header.includes('Voltage') || header.includes('Pressure') || header.includes('Battery')) {
+        return num.toFixed(1);
+      }
+      // Percentages and counts
+      if (header.includes('%') || header.includes('Count') || header.includes('Cycle')) {
+        return Math.round(num).toString();
+      }
+      // Boolean-like (0/1)
+      if (value === '0' || value === '1') {
+        if (header.includes('Load') || header.includes('Auto') || header.includes('On')) {
+          return value === '1' ? '✓ Yes' : '✗ No';
+        }
+      }
+      // Default number formatting
+      if (Number.isInteger(num)) return num.toString();
+      return num.toFixed(2);
+    }
+    return value;
+  };
+
+  // Get unit from header
+  const getUnit = (header: string): string => {
+    const match = header.match(/\(([^)]+)\)/);
+    return match ? match[1] : '';
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>📊 Last Sent Data</h2>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="last-data-info">
+            <span className="sensor-badge">{sensor.sensor_type.replace('_', ' ')}</span>
+            <span className="sensor-name-label">{sensor.name}</span>
+          </div>
+          
+          {headers.length === 0 ? (
+            <div className="no-data">
+              <Database size={32} strokeWidth={1} />
+              <p>No data sent yet</p>
+            </div>
+          ) : (
+            <div className="data-table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="field-col">Field</th>
+                    <th className="value-col">Value</th>
+                    <th className="unit-col">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {headers.map((header, i) => (
+                    <tr key={i}>
+                      <td className="field-col">
+                        <span className="field-name">{formatHeader(header)}</span>
+                      </td>
+                      <td className="value-col">
+                        <span className="field-value">{rows[0] ? formatValue(rows[0][i], header) : '-'}</span>
+                      </td>
+                      <td className="unit-col">
+                        <span className="field-unit">{getUnit(header)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

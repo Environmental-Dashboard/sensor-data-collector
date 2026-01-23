@@ -1287,3 +1287,137 @@ html:not(.dark) .form-error {
     min-width: auto;
   }
 }
+
+/* ============================================
+   LAST DATA MODAL - TABLE DISPLAY
+   ============================================ */
+.modal-wide {
+  max-width: 600px;
+  width: 95%;
+}
+
+.last-data-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sensor-badge {
+  background: var(--accent);
+  color: var(--text-inverse);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sensor-name-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.no-data {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.no-data svg {
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.no-data p {
+  margin: 0;
+}
+
+.data-table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.data-table th {
+  background: var(--bg-elevated);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.field-col {
+  width: 45%;
+}
+
+.value-col {
+  width: 35%;
+}
+
+.unit-col {
+  width: 20%;
+}
+
+.field-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.field-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.field-unit {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Dark mode adjustments */
+.dark .sensor-badge {
+  background: var(--grey-200);
+  color: var(--grey-900);
+}
+
+.dark .data-table th {
+  background: var(--grey-800);
+}
+
+.dark .field-value {
+  color: var(--grey-100);
+}

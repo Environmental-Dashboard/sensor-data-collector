@@ -34,12 +34,23 @@ import asyncio
 import json
 import uuid
 import os
+import logging
+import sys
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.date import DateTrigger
+
+# Configure logging for sensor manager
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger(__name__)
 
 from app.models import (
     SensorType,
@@ -459,7 +470,7 @@ class SensorManager:
         interval = frequency or sensor.get("polling_frequency") or self.polling_interval
         job_id = f"poll_{sensor_id}"
         
-        print(f"[{sensor.get('name', sensor_id)}] Starting poll job (interval: {interval}s)")
+        logger.info(f"[{sensor.get('name', sensor_id)}] Starting poll job (interval: {interval}s)")
         
         self.scheduler.add_job(
             callback,
@@ -475,10 +486,10 @@ class SensorManager:
         is_purple_air = sensor_type == SensorType.PURPLE_AIR or sensor_type == SensorType.PURPLE_AIR.value
         is_power_saving = power_mode == PowerMode.POWER_SAVING.value
         
-        print(f"[{sensor.get('name', sensor_id)}] sensor_type={sensor_type}, power_mode={power_mode}, is_purple_air={is_purple_air}, is_power_saving={is_power_saving}")
+        logger.info(f"[{sensor.get('name', sensor_id)}] type={sensor_type}, power_mode={power_mode}, is_ps={is_power_saving}")
         
         if is_purple_air and is_power_saving:
-            print(f"[{sensor.get('name', sensor_id)}] Scheduling pre-wake job...")
+            logger.info(f"[{sensor.get('name', sensor_id)}] Scheduling pre-wake job (30s before each poll)")
             self._schedule_pre_wake(sensor_id, interval)
     
     
@@ -531,11 +542,11 @@ class SensorManager:
         
         voltage_meter = self._find_voltage_meter_for_sensor(sensor_id)
         if not voltage_meter:
-            print(f"[{sensor['name']}] Power saving mode but no linked Voltage Meter found")
+            logger.warning(f"[{sensor['name']}] Power saving mode but no linked Voltage Meter found")
             return
         
         vm_ip = voltage_meter["ip_address"]
-        print(f"[{sensor['name']}] Pre-wake: Turning relay ON...")
+        logger.info(f"[{sensor['name']}] Pre-wake: Turning relay ON...")
         
         # Set status to WAKING
         sensor["status"] = SensorStatus.WAKING
@@ -580,7 +591,7 @@ class SensorManager:
             vm_ip = voltage_meter["ip_address"]
             
             # Sensor should be waking/already awake from pre-wake job
-            print(f"[{sensor['name']}] Power saving: Fetching data...")
+            logger.info(f"[{sensor['name']}] Power saving: Fetching data...")
             
             # Fetch data
             result = await self.purple_air_service.fetch_and_push(
@@ -591,7 +602,7 @@ class SensorManager:
             
             # Turn relay OFF after fetching (go back to sleep)
             await asyncio.sleep(self.POWER_OFF_DELAY)
-            print(f"[{sensor['name']}] Power saving: Turning relay OFF...")
+            logger.info(f"[{sensor['name']}] Power saving: Turning relay OFF...")
             await self.voltage_meter_service.set_relay(vm_ip, on=False)
             
             # Handle result
