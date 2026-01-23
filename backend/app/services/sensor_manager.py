@@ -470,7 +470,7 @@ class SensorManager:
         interval = frequency or sensor.get("polling_frequency") or self.polling_interval
         job_id = f"poll_{sensor_id}"
         
-        logger.info(f"[{sensor.get('name', sensor_id)}] Starting poll job (interval: {interval}s)")
+        print(f"[{sensor.get('name', sensor_id)}] Starting poll job (interval: {interval}s)")
         
         self.scheduler.add_job(
             callback,
@@ -486,25 +486,31 @@ class SensorManager:
         is_purple_air = sensor_type == SensorType.PURPLE_AIR or sensor_type == SensorType.PURPLE_AIR.value
         is_power_saving = power_mode == PowerMode.POWER_SAVING.value
         
-        logger.info(f"[{sensor.get('name', sensor_id)}] type={sensor_type}, power_mode={power_mode}, is_ps={is_power_saving}")
+        print(f"[{sensor.get('name', sensor_id)}] type={sensor_type}, power_mode={power_mode}, is_purple_air={is_purple_air}, is_power_saving={is_power_saving}")
         
         if is_purple_air and is_power_saving:
-            logger.info(f"[{sensor.get('name', sensor_id)}] Scheduling pre-wake job (30s before each poll)")
+            print(f"[{sensor.get('name', sensor_id)}] >>> SCHEDULING PRE-WAKE JOB (30s before each poll)")
             self._schedule_pre_wake(sensor_id, interval)
+        else:
+            print(f"[{sensor.get('name', sensor_id)}] No pre-wake needed (not power_saving mode)")
     
     
     def _schedule_pre_wake(self, sensor_id: str, poll_interval: int):
         """Schedule a pre-wake job for power saving mode."""
         prewake_job_id = f"prewake_{sensor_id}"
+        sensor = self._sensors.get(sensor_id)
         
         # Pre-wake runs at the same interval, but offset by PRE_WAKE_TIME
         # This ensures relay turns ON 30 seconds before each poll
+        start_time = datetime.now(timezone.utc) + timedelta(seconds=poll_interval - self.PRE_WAKE_TIME)
+        print(f"[{sensor.get('name', sensor_id)}] Pre-wake scheduled: first at {start_time}, then every {poll_interval}s")
+        
         self.scheduler.add_job(
             self._pre_wake_sensor,
             trigger=IntervalTrigger(seconds=poll_interval),
             id=prewake_job_id,
             args=[sensor_id],
-            start_date=datetime.now(timezone.utc) + timedelta(seconds=poll_interval - self.PRE_WAKE_TIME),
+            start_date=start_time,
             replace_existing=True,
         )
     
@@ -534,7 +540,10 @@ class SensorManager:
         """
         sensor = self._sensors.get(sensor_id)
         if not sensor:
+            print(f"[PRE-WAKE] Sensor {sensor_id} not found!")
             return
+        
+        print(f"[{sensor.get('name', sensor_id)}] >>> PRE-WAKE TRIGGERED - Turning relay ON")
         
         # Only pre-wake if in power saving mode
         if sensor.get("power_mode") != PowerMode.POWER_SAVING.value:
