@@ -70,3 +70,7 @@ export const updateSensor = (id: string, data: { name?: string; location?: strin
 // Set voltage meter thresholds
 export const setThresholds = (id: string, cutoff: number, reconnect: number) =>
   api<any>(`/api/sensors/voltage-meter/${id}/thresholds`, { method: 'POST', body: JSON.stringify({ cutoff, reconnect }) });
+
+// Calibrate voltage meter ADC
+export const calibrateVoltageMeter = (id: string, targetVoltage: number) =>
+  api<any>(`/api/sensors/voltage-meter/${id}/calibrate`, { method: 'POST', body: JSON.stringify({ target_voltage: targetVoltage }) });

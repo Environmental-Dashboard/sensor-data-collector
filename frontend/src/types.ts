@@ -3,6 +3,9 @@ export type SensorType = 'purple_air' | 'tempest' | 'water_quality' | 'do_sensor
 export type SensorStatus = 'active' | 'inactive' | 'error' | 'offline' | 'sleeping' | 'waking';
 export type PowerMode = 'normal' | 'power_saving';
 
+// Relay mode for voltage meters
+export type RelayMode = 'auto' | 'on' | 'off';
+
 // A sensor from the API
 export interface Sensor {
   id: string;
@@ -22,6 +25,10 @@ export interface Sensor {
   linked_sensor_name: string | null;  // For voltage meters - linked sensor name
   power_mode: PowerMode | null;  // For Purple Air - normal or power_saving
   polling_frequency: number | null;  // Polling frequency in seconds
+  auto_mode: boolean | null;  // For voltage meters - relay in auto mode
+  load_on: boolean | null;  // For voltage meters - relay/load state
+  v_cutoff: number | null;  // For voltage meters - cutoff threshold
+  v_reconnect: number | null;  // For voltage meters - reconnect threshold
 }
 
 // List response

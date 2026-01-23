@@ -1224,6 +1224,124 @@ html:not(.dark) .form-error {
   margin: 8px 12px;
 }
 
+.dropdown-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 8px 16px 4px;
+  margin-top: 4px;
+}
+
+.dropdown-item.active {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.dropdown-item.active svg {
+  color: var(--success);
+}
+
+.dropdown-frequency-buttons {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 12px;
+}
+
+.freq-btn {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.freq-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+}
+
+.freq-btn.active {
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-color: var(--accent);
+}
+
+/* Relay mode indicator */
+.meta-item.relay-mode {
+  font-weight: 500;
+}
+
+.meta-item.relay-on {
+  color: var(--success);
+}
+
+.meta-item.relay-off {
+  color: var(--text-muted);
+}
+
+.threshold-info {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Calibration Modal */
+.calibration-info {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.calibration-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.calibration-step:not(:last-child) {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.step-number {
+  width: 24px;
+  height: 24px;
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.current-reading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+  margin-bottom: 20px;
+  font-size: 0.875rem;
+}
+
+.current-reading strong {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1rem;
+}
+
 /* ============================================
    DATA PREVIEW (Last Sent Data)
    ============================================ */

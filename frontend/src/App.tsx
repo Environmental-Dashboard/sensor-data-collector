@@ -87,6 +87,7 @@ export default function App() {
   const [lastDataModal, setLastDataModal] = useState<{ open: boolean; sensor: Sensor | null; data: string | null }>({ open: false, sensor: null, data: null });
   const [editModal, setEditModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
   const [thresholdsModal, setThresholdsModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
+  const [calibrateModal, setCalibrateModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
 
   // Toast helpers
   const showToast = useCallback((type: 'success' | 'error', message: string) => {
@@ -288,6 +289,20 @@ export default function App() {
     setActionLoading(null);
   };
 
+  const handleCalibrate = async (sensor: Sensor, targetVoltage: number) => {
+    setActionLoading(sensor.id);
+    try {
+      await api.calibrateVoltageMeter(sensor.id, targetVoltage);
+      showToast('success', `Calibrated to ${targetVoltage}V`);
+      setCalibrateModal({ open: false, sensor: null });
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to calibrate';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
   const handleAddSensor = async (data: AddPurpleAirRequest | AddTempestRequest) => {
     try {
       if (activeTab === 'purple_air') {
@@ -426,6 +441,7 @@ export default function App() {
                     onViewLastData={() => handleViewLastData(sensor)}
                     onEditSensor={() => handleEditSensor(sensor)}
                     onSetThresholds={sensor.sensor_type === 'voltage_meter' ? () => handleSetThresholds(sensor) : undefined}
+                    onCalibrate={sensor.sensor_type === 'voltage_meter' ? () => setCalibrateModal({ open: true, sensor }) : undefined}
                     relayLoading={actionLoading === sensor.id}
                     voltageMeterSensors={sensors.filter(s => s.sensor_type === 'voltage_meter' && !s.linked_sensor_id)}
                   />
@@ -474,6 +490,16 @@ export default function App() {
         />
       )}
 
+      {/* Calibrate Modal */}
+      {calibrateModal.open && calibrateModal.sensor && (
+        <CalibrateModal
+          sensor={calibrateModal.sensor}
+          onClose={() => setCalibrateModal({ open: false, sensor: null })}
+          onSave={(targetVoltage) => handleCalibrate(calibrateModal.sensor!, targetVoltage)}
+          loading={actionLoading === calibrateModal.sensor.id}
+        />
+      )}
+
       {/* Toasts */}
       <div className="toast-container">
         {toasts.map(toast => (
@@ -503,36 +529,37 @@ interface SensorCardProps {
   onViewLastData?: () => void;
   onEditSensor?: () => void;
   onSetThresholds?: () => void;
+  onCalibrate?: () => void;
   relayLoading?: boolean;
   voltageMeterSensors?: Sensor[];
   onLinkVoltageMeter?: (voltageMeterI: string) => void;
 }
 
-function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, relayLoading, voltageMeterSensors, onLinkVoltageMeter }: SensorCardProps) {
-  const [showSettings, setShowSettings] = useState(false);
+function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, onCalibrate, relayLoading, voltageMeterSensors, onLinkVoltageMeter }: SensorCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Close menu and settings when clicking outside
+  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      
-      // Close menu if clicking outside menu container
       if (showMenu && menuRef.current && !menuRef.current.contains(target)) {
         setShowMenu(false);
       }
-      
-      // Close settings if clicking outside the entire card
-      if (showSettings && cardRef.current && !cardRef.current.contains(target)) {
-        setShowSettings(false);
-      }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMenu, showSettings]);
+  }, [showMenu]);
+
+  // Get relay mode text for voltage meters
+  const getRelayModeText = () => {
+    if (sensor.sensor_type !== 'voltage_meter') return null;
+    if (sensor.auto_mode === true) return 'Auto';
+    if (sensor.load_on === true) return 'Force ON';
+    if (sensor.load_on === false) return 'Force OFF';
+    return null;
+  };
 
   return (
     <div className={`sensor-card ${sensor.status}`} ref={cardRef}>
@@ -572,17 +599,30 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <span>{sensor.battery_volts.toFixed(2)}V</span>
           </div>
         )}
+        {/* Relay mode indicator for Voltage Meter */}
+        {sensor.sensor_type === 'voltage_meter' && (
+          <div className={`meta-item relay-mode ${sensor.load_on ? 'relay-on' : 'relay-off'}`}>
+            <Zap size={14} />
+            <span>Relay: {sensor.load_on ? 'ON' : 'OFF'} ({getRelayModeText()})</span>
+          </div>
+        )}
+        {/* Threshold info for Voltage Meter */}
+        {sensor.sensor_type === 'voltage_meter' && sensor.v_cutoff && sensor.v_reconnect && (
+          <div className="meta-item">
+            <span className="threshold-info">Cut: {sensor.v_cutoff}V / Rec: {sensor.v_reconnect}V</span>
+          </div>
+        )}
         {/* Power mode indicator for Purple Air */}
         {sensor.sensor_type === 'purple_air' && sensor.power_mode === 'power_saving' && (
           <div className="meta-item power-mode">
             <Moon size={14} />
-            <span>Power Saving</span>
+            <span>Power Saving ({Math.round((sensor.polling_frequency || 300) / 60)}m)</span>
           </div>
         )}
         {/* Linked sensor for Voltage Meter */}
         {sensor.sensor_type === 'voltage_meter' && sensor.linked_sensor_name && (
           <div className="meta-item linked-sensor">
-            <Zap size={14} />
+            <Link size={14} />
             <span>Controls: {sensor.linked_sensor_name}</span>
           </div>
         )}
@@ -607,7 +647,7 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
       {/* Battery Low Warning (not an error - expected state) */}
       {sensor.status_reason === 'battery_low' && sensor.battery_volts !== null && (
         <div className="sensor-warning">
-          <Battery size={14} /> Battery Low ({sensor.battery_volts.toFixed(1)}V) - Sensor Off
+          <Battery size={14} /> Battery Low ({sensor.battery_volts.toFixed(1)}V) - Sensor powered off
         </div>
       )}
       {/* Cloud Error (not sensor's fault) */}
@@ -616,8 +656,11 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
           <Cloud size={14} /> {sensor.last_error}
         </div>
       )}
-      {/* Regular Errors */}
-      {sensor.last_error && sensor.status_reason !== 'battery_low' && sensor.status_reason !== 'cloud_error' && (
+      {/* Regular Errors - but NOT the "Relay OFF but voltage OK" message for power saving mode */}
+      {sensor.last_error && 
+       sensor.status_reason !== 'battery_low' && 
+       sensor.status_reason !== 'cloud_error' && 
+       !(sensor.status === 'sleeping' && sensor.last_error.includes('Relay OFF')) && (
         <div className="sensor-error">{sensor.last_error}</div>
       )}
 
@@ -641,136 +684,129 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <Play size={16} /> Ping
           </button>
         )}
-        {/* Settings button (gear) for sensors with settings */}
-        {(sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'voltage_meter') && (
-          <button className="btn btn-icon" onClick={() => setShowSettings(!showSettings)} title="Settings">
-            <Settings size={16} />
-          </button>
-        )}
-        {/* Three-dot options menu */}
+        {/* Three-dot options menu - ONLY menu, no separate gear */}
         <div className="menu-container" ref={menuRef}>
-          <button className="btn btn-icon" onClick={() => setShowMenu(!showMenu)} title="More options">
+          <button className="btn btn-icon" onClick={() => setShowMenu(!showMenu)} title="Options">
             <MoreVertical size={16} />
           </button>
           {showMenu && (
             <div className="dropdown-menu">
+              {/* View Last Data */}
               {onViewLastData && (
-                <button className="dropdown-item" onClick={onViewLastData}>
+                <button className="dropdown-item" onClick={() => { onViewLastData(); setShowMenu(false); }}>
                   <Eye size={14} /> View Last Sent Data
                 </button>
               )}
+              
+              {/* Edit Sensor */}
               {onEditSensor && (
-                <button className="dropdown-item" onClick={onEditSensor}>
+                <button className="dropdown-item" onClick={() => { onEditSensor(); setShowMenu(false); }}>
                   <Edit size={14} /> Edit Sensor
                 </button>
               )}
+              
+              {/* Refresh Now */}
+              <button className="dropdown-item" onClick={() => { onFetchNow(); setShowMenu(false); }}>
+                <RefreshCw size={14} /> Refresh Now
+              </button>
+
+              {/* ===== PURPLE AIR OPTIONS ===== */}
+              {sensor.sensor_type === 'purple_air' && onPowerModeChange && (
+                <>
+                  <div className="dropdown-divider" />
+                  <div className="dropdown-section-label">Power Mode</div>
+                  <button 
+                    className={`dropdown-item ${sensor.power_mode !== 'power_saving' ? 'active' : ''}`}
+                    onClick={() => { onPowerModeChange('normal'); setShowMenu(false); }}
+                  >
+                    <Power size={14} /> Normal Mode
+                  </button>
+                  <button 
+                    className={`dropdown-item ${sensor.power_mode === 'power_saving' ? 'active' : ''}`}
+                    onClick={() => { onPowerModeChange('power_saving'); setShowMenu(false); }}
+                  >
+                    <Moon size={14} /> Power Saving Mode
+                  </button>
+                </>
+              )}
+              
+              {/* Poll Frequency (only for power saving mode) */}
+              {sensor.sensor_type === 'purple_air' && sensor.power_mode === 'power_saving' && onFrequencyChange && (
+                <>
+                  <div className="dropdown-section-label">Poll Frequency</div>
+                  <div className="dropdown-frequency-buttons">
+                    {[5, 10, 15, 30, 60].map(mins => (
+                      <button 
+                        key={mins}
+                        className={`freq-btn ${sensor.polling_frequency === mins * 60 ? 'active' : ''}`}
+                        onClick={() => { onFrequencyChange(mins); setShowMenu(false); }}
+                      >
+                        {mins}m
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              
+              {/* Link Battery Monitor */}
               {sensor.sensor_type === 'purple_air' && voltageMeterSensors && voltageMeterSensors.length > 0 && (
-                <button className="dropdown-item" onClick={() => onLinkVoltageMeter?.(voltageMeterSensors[0].id)}>
+                <button className="dropdown-item" onClick={() => { onLinkVoltageMeter?.(voltageMeterSensors[0].id); setShowMenu(false); }}>
                   <Link size={14} /> Link Battery Monitor
                 </button>
               )}
+
+              {/* ===== VOLTAGE METER OPTIONS ===== */}
+              {sensor.sensor_type === 'voltage_meter' && onRelayControl && (
+                <>
+                  <div className="dropdown-divider" />
+                  <div className="dropdown-section-label">Relay Control</div>
+                  <button 
+                    className={`dropdown-item ${sensor.auto_mode ? 'active' : ''}`}
+                    onClick={() => { onRelayControl('auto'); setShowMenu(false); }}
+                    disabled={relayLoading}
+                  >
+                    <Zap size={14} /> Automatic
+                  </button>
+                  <button 
+                    className={`dropdown-item ${!sensor.auto_mode && sensor.load_on ? 'active' : ''}`}
+                    onClick={() => { onRelayControl('on'); setShowMenu(false); }}
+                    disabled={relayLoading}
+                  >
+                    <Power size={14} /> Force ON
+                  </button>
+                  <button 
+                    className={`dropdown-item ${!sensor.auto_mode && !sensor.load_on ? 'active' : ''}`}
+                    onClick={() => { onRelayControl('off'); setShowMenu(false); }}
+                    disabled={relayLoading}
+                  >
+                    <PowerOff size={14} /> Force OFF
+                  </button>
+                </>
+              )}
+              
+              {/* Set Thresholds */}
               {sensor.sensor_type === 'voltage_meter' && onSetThresholds && (
-                <button className="dropdown-item" onClick={onSetThresholds}>
-                  <Battery size={14} /> Set Thresholds
+                <button className="dropdown-item" onClick={() => { onSetThresholds(); setShowMenu(false); }}>
+                  <Battery size={14} /> Set Voltage Thresholds
                 </button>
               )}
-              <button className="dropdown-item" onClick={onFetchNow}>
-                <RefreshCw size={14} /> Refresh Now
-              </button>
+              
+              {/* Calibrate ADC */}
+              {sensor.sensor_type === 'voltage_meter' && onCalibrate && (
+                <button className="dropdown-item" onClick={() => { onCalibrate(); setShowMenu(false); }}>
+                  <Settings size={14} /> Calibrate ADC
+                </button>
+              )}
+
+              {/* ===== DELETE ===== */}
               <div className="dropdown-divider" />
-              <button className="dropdown-item danger" onClick={onDelete}>
+              <button className="dropdown-item danger" onClick={() => { onDelete(); setShowMenu(false); }}>
                 <Trash2 size={14} /> Delete Sensor
               </button>
             </div>
           )}
         </div>
       </div>
-
-      {/* Voltage Meter Settings */}
-      {showSettings && sensor.sensor_type === 'voltage_meter' && onRelayControl && (
-        <div className="sensor-settings">
-          <div className="settings-section">
-            <div className="settings-label">
-              <Power size={12} /> Relay Control
-            </div>
-            <div className="relay-buttons">
-              <button 
-                className="btn btn-sm" 
-                onClick={() => onRelayControl('auto')}
-                disabled={relayLoading}
-                title="Let the voltage meter decide based on battery thresholds"
-              >
-                Automatic
-              </button>
-              <button 
-                className="btn btn-sm btn-success" 
-                onClick={() => onRelayControl('on')}
-                disabled={relayLoading}
-                title="Force the relay ON (power the sensor)"
-              >
-                Force ON
-              </button>
-              <button 
-                className="btn btn-sm btn-danger" 
-                onClick={() => onRelayControl('off')}
-                disabled={relayLoading}
-                title="Force the relay OFF (cut power)"
-              >
-                Force OFF
-              </button>
-            </div>
-          </div>
-          {onSetThresholds && (
-            <div className="settings-section">
-              <button className="btn btn-sm" onClick={onSetThresholds} style={{width: '100%'}}>
-                <Battery size={14} /> Configure Battery Thresholds
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Power Mode Settings for Purple Air */}
-      {showSettings && sensor.sensor_type === 'purple_air' && onPowerModeChange && onFrequencyChange && (
-        <div className="sensor-settings">
-          <div className="settings-section">
-            <div className="settings-label">Power Mode</div>
-            <div className="settings-buttons">
-              <button 
-                className={`btn btn-sm ${sensor.power_mode !== 'power_saving' ? 'btn-primary' : ''}`}
-                onClick={() => onPowerModeChange('normal')}
-                disabled={loading}
-              >
-                Normal
-              </button>
-              <button 
-                className={`btn btn-sm ${sensor.power_mode === 'power_saving' ? 'btn-primary' : ''}`}
-                onClick={() => onPowerModeChange('power_saving')}
-                disabled={loading}
-              >
-                Power Saving
-              </button>
-            </div>
-          </div>
-          {sensor.power_mode === 'power_saving' && (
-            <div className="settings-section">
-              <div className="settings-label">Poll Frequency</div>
-              <div className="settings-buttons frequency-buttons">
-                {[5, 10, 15, 30, 60].map(mins => (
-                  <button 
-                    key={mins}
-                    className={`btn btn-sm ${(sensor as any).polling_frequency === mins * 60 ? 'btn-primary' : ''}`}
-                    onClick={() => onFrequencyChange(mins)}
-                    disabled={loading}
-                  >
-                    {mins}m
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -1072,6 +1108,90 @@ function ThresholdsModal({ sensor, onClose, onSave, loading }: ThresholdsModalPr
     </div>
   );
 }
+
+
+// Calibration Modal for Voltage Meter
+interface CalibrateModalProps {
+  sensor: Sensor;
+  onClose: () => void;
+  onSave: (targetVoltage: number) => void;
+  loading: boolean;
+}
+
+function CalibrateModal({ sensor, onClose, onSave, loading }: CalibrateModalProps) {
+  const [targetVoltage, setTargetVoltage] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const voltage = parseFloat(targetVoltage);
+    if (!isNaN(voltage) && voltage > 0) {
+      onSave(voltage);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Calibrate ADC</h2>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <p className="form-hint" style={{marginBottom: '20px'}}>
+              Calibrate the voltage reading for <strong>{sensor.name}</strong>.
+            </p>
+            
+            <div className="calibration-info">
+              <div className="calibration-step">
+                <span className="step-number">1</span>
+                <span>Measure the actual battery voltage with a multimeter</span>
+              </div>
+              <div className="calibration-step">
+                <span className="step-number">2</span>
+                <span>Enter that voltage below</span>
+              </div>
+              <div className="calibration-step">
+                <span className="step-number">3</span>
+                <span>The ESP32 will auto-calibrate its ADC</span>
+              </div>
+            </div>
+
+            <div className="current-reading">
+              <span>Current displayed voltage:</span>
+              <strong>{sensor.battery_volts?.toFixed(2) || '?'}V</strong>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Actual Voltage (from multimeter)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="8"
+                max="16"
+                placeholder="e.g., 12.85"
+                className="form-input mono"
+                value={targetVoltage}
+                onChange={e => setTargetVoltage(e.target.value)}
+                disabled={loading}
+                autoFocus
+              />
+              <p className="form-hint">Enter the exact voltage reading from your multimeter</p>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading || !targetVoltage}>
+              {loading ? <Loader2 size={16} className="spinner" /> : <Settings size={16} />}
+              Calibrate
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 
 // Last Data Modal - Shows CSV data in a nice table
 interface LastDataModalProps {

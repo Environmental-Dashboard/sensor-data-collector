@@ -49,7 +49,7 @@ Author: Frank Kusi Appiah
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models import (
     SensorType,
@@ -537,6 +537,53 @@ async def set_voltage_meter_thresholds(
         "sensor_id": sensor_id,
         "cutoff": body.cutoff,
         "reconnect": body.reconnect,
+        "ip_address": vm_ip,
+    }
+
+
+class CalibrateRequest(BaseModel):
+    target_voltage: float = Field(..., description="Actual voltage reading from multimeter")
+
+
+@router.post("/voltage-meter/{sensor_id}/calibrate")
+async def calibrate_voltage_meter(
+    sensor_id: str,
+    body: CalibrateRequest,
+    manager = Depends(get_sensor_manager),
+):
+    """
+    Calibrate the voltage meter ADC.
+    
+    Provide the actual voltage reading from a multimeter. The ESP32 will
+    automatically calculate and save the calibration factor.
+    
+    This only needs to be done once per device.
+    """
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Voltage meter not found")
+    
+    if sensor.sensor_type != SensorType.VOLTAGE_METER:
+        raise HTTPException(status_code=400, detail="Calibration only valid for voltage_meter sensors")
+    
+    vm_ip = sensor.ip_address
+    if not vm_ip:
+        raise HTTPException(status_code=400, detail="Voltage meter has no IP address configured")
+    
+    vm_service = manager.voltage_meter_service
+    
+    try:
+        ok = await vm_service.calibrate(vm_ip, body.target_voltage)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
+    
+    if not ok:
+        raise HTTPException(status_code=502, detail="Voltage meter did not accept calibration")
+    
+    return {
+        "status": "ok",
+        "sensor_id": sensor_id,
+        "target_voltage": body.target_voltage,
         "ip_address": vm_ip,
     }
 

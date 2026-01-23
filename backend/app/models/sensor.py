@@ -313,6 +313,11 @@ class SensorResponse(BaseModel):
     linked_sensor_name: Optional[str] = Field(None, description="Linked sensor name (for Voltage Meters)")
     power_mode: Optional[str] = Field(None, description="Power mode: normal or power_saving (Purple Air)")
     polling_frequency: Optional[int] = Field(None, description="Polling frequency in seconds")
+    # Voltage meter specific fields
+    auto_mode: Optional[bool] = Field(None, description="Relay auto mode (Voltage Meter)")
+    load_on: Optional[bool] = Field(None, description="Relay/load state (Voltage Meter)")
+    v_cutoff: Optional[float] = Field(None, description="Cutoff voltage threshold (Voltage Meter)")
+    v_reconnect: Optional[float] = Field(None, description="Reconnect voltage threshold (Voltage Meter)")
 
 
 class SensorListResponse(BaseModel):

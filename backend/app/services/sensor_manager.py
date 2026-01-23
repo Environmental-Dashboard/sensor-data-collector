@@ -783,9 +783,18 @@ class SensorManager:
             sensor["status_reason"] = None
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
-            # Update battery voltage from reading
-            if result.get("reading") and result["reading"].get("voltage_v") is not None:
-                sensor["battery_volts"] = result["reading"]["voltage_v"]
+            # Update battery voltage and relay status from reading
+            reading = result.get("reading", {})
+            if reading.get("voltage_v") is not None:
+                sensor["battery_volts"] = reading["voltage_v"]
+            if reading.get("auto_mode") is not None:
+                sensor["auto_mode"] = reading["auto_mode"]
+            if reading.get("load_on") is not None:
+                sensor["load_on"] = reading["load_on"]
+            if reading.get("v_cutoff") is not None:
+                sensor["v_cutoff"] = reading["v_cutoff"]
+            if reading.get("v_reconnect") is not None:
+                sensor["v_reconnect"] = reading["v_reconnect"]
             # Store CSV sample
             if result.get("csv_sample"):
                 sensor["last_csv_sample"] = result["csv_sample"]
