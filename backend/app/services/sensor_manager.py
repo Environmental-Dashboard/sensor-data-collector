@@ -128,70 +128,106 @@ class SensorManager:
     def _load_from_file(self):
         """Load sensors from the JSON file."""
         if not self.DB_FILE.exists():
-            print(f"No existing database found at {self.DB_FILE}")
+            logger.info(f"No existing database found at {self.DB_FILE}")
             return
         
         try:
-            with open(self.DB_FILE, 'r') as f:
+            with open(self.DB_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             # Convert the data back to proper types
             for sensor_id, sensor in data.items():
-                # Convert string types back to enums
-                sensor["sensor_type"] = SensorType(sensor["sensor_type"])
-                sensor["status"] = SensorStatus(sensor["status"])
-                
-                # Convert datetime strings back to datetime objects
-                if sensor.get("last_active"):
-                    sensor["last_active"] = datetime.fromisoformat(sensor["last_active"])
-                if sensor.get("created_at"):
-                    sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
-                
-                self._sensors[sensor_id] = sensor
+                try:
+                    # Convert string types back to enums
+                    sensor["sensor_type"] = SensorType(sensor["sensor_type"])
+                    sensor["status"] = SensorStatus(sensor["status"])
+                    
+                    # Convert datetime strings back to datetime objects
+                    if sensor.get("last_active"):
+                        sensor["last_active"] = datetime.fromisoformat(sensor["last_active"])
+                    if sensor.get("created_at"):
+                        sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
+                    
+                    self._sensors[sensor_id] = sensor
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.error(f"Error loading sensor {sensor_id}: {e}, skipping")
+                    continue
             
-            print(f"Loaded {len(self._sensors)} sensors from database")
+            logger.info(f"Loaded {len(self._sensors)} sensors from database")
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing sensors database JSON: {e}")
+            # Backup corrupted file
+            backup_path = self.DB_FILE.with_suffix('.json.backup')
+            try:
+                import shutil
+                shutil.copy2(self.DB_FILE, backup_path)
+                logger.warning(f"Corrupted database backed up to {backup_path}")
+            except Exception as backup_err:
+                logger.error(f"Failed to backup corrupted database: {backup_err}")
         except Exception as e:
-            print(f"Error loading sensors database: {e}")
+            logger.error(f"Error loading sensors database: {e}", exc_info=True)
     
     
     def _save_to_file(self):
-        """Save sensors to the JSON file."""
+        """Save sensors to the JSON file (atomic write)."""
         try:
             # Convert to JSON-serializable format
             data = {}
             for sensor_id, sensor in self._sensors.items():
-                sensor_copy = sensor.copy()
-                
-                # Convert enums to strings
-                sensor_copy["sensor_type"] = sensor_copy["sensor_type"].value
-                sensor_copy["status"] = sensor_copy["status"].value
-                
-                # Convert datetimes to ISO strings
-                if sensor_copy.get("last_active"):
-                    sensor_copy["last_active"] = sensor_copy["last_active"].isoformat()
-                if sensor_copy.get("created_at"):
-                    sensor_copy["created_at"] = sensor_copy["created_at"].isoformat()
-                
-                data[sensor_id] = sensor_copy
+                try:
+                    sensor_copy = sensor.copy()
+                    
+                    # Convert enums to strings
+                    if isinstance(sensor_copy.get("sensor_type"), SensorType):
+                        sensor_copy["sensor_type"] = sensor_copy["sensor_type"].value
+                    if isinstance(sensor_copy.get("status"), SensorStatus):
+                        sensor_copy["status"] = sensor_copy["status"].value
+                    
+                    # Convert datetimes to ISO strings
+                    if sensor_copy.get("last_active"):
+                        if isinstance(sensor_copy["last_active"], datetime):
+                            sensor_copy["last_active"] = sensor_copy["last_active"].isoformat()
+                    if sensor_copy.get("created_at"):
+                        if isinstance(sensor_copy["created_at"], datetime):
+                            sensor_copy["created_at"] = sensor_copy["created_at"].isoformat()
+                    
+                    data[sensor_id] = sensor_copy
+                except Exception as e:
+                    logger.error(f"Error serializing sensor {sensor_id}: {e}")
+                    continue
             
-            with open(self.DB_FILE, 'w') as f:
-                json.dump(data, f, indent=2)
+            # Atomic write: write to temp file first, then rename
+            temp_file = self.DB_FILE.with_suffix('.json.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
             
+            # Atomic rename (works on Windows too)
+            temp_file.replace(self.DB_FILE)
+            logger.debug(f"Saved {len(data)} sensors to database")
+            
+        except PermissionError as e:
+            logger.error(f"Permission denied saving sensors database: {e}")
+        except OSError as e:
+            logger.error(f"OS error saving sensors database: {e}")
         except Exception as e:
-            print(f"Error saving sensors database: {e}")
+            logger.error(f"Error saving sensors database: {e}", exc_info=True)
     
     
     def _restart_active_sensors(self):
         """Restart polling for sensors that were active before shutdown."""
         for sensor_id, sensor in self._sensors.items():
             if sensor.get("is_active"):
-                print(f"Restarting polling for sensor: {sensor['name']}")
-                if sensor["sensor_type"] == SensorType.PURPLE_AIR:
-                    self._start_polling_job(sensor_id, self._poll_purple_air_sensor)
-                elif sensor["sensor_type"] == SensorType.TEMPEST:
-                    self._start_polling_job(sensor_id, self._poll_tempest_sensor)
-                elif sensor["sensor_type"] == SensorType.VOLTAGE_METER:
-                    self._start_polling_job(sensor_id, self._poll_voltage_meter)
+                logger.info(f"Restarting polling for sensor: {sensor['name']}")
+                try:
+                    if sensor["sensor_type"] == SensorType.PURPLE_AIR:
+                        self._start_polling_job(sensor_id, self._poll_purple_air_sensor)
+                    elif sensor["sensor_type"] == SensorType.TEMPEST:
+                        self._start_polling_job(sensor_id, self._poll_tempest_sensor)
+                    elif sensor["sensor_type"] == SensorType.VOLTAGE_METER:
+                        self._start_polling_job(sensor_id, self._poll_voltage_meter)
+                except Exception as e:
+                    logger.error(f"Failed to restart polling for sensor {sensor_id}: {e}")
+                    sensor["is_active"] = False
     
     
     # =========================================================================
@@ -676,16 +712,20 @@ class SensorManager:
         # Pre-wake runs at the same interval, but offset by PRE_WAKE_TIME
         # This ensures relay turns ON 30 seconds before each poll
         start_time = datetime.now(timezone.utc) + timedelta(seconds=poll_interval - self.PRE_WAKE_TIME)
-        print(f"[{sensor.get('name', sensor_id)}] Pre-wake scheduled: first at {start_time}, then every {poll_interval}s")
+        logger.info(f"[{sensor.get('name', sensor_id)}] Pre-wake scheduled: first at {start_time}, then every {poll_interval}s")
         
-        self.scheduler.add_job(
-            self._pre_wake_sensor,
-            trigger=IntervalTrigger(seconds=poll_interval),
-            id=prewake_job_id,
-            args=[sensor_id],
-            start_date=start_time,
-            replace_existing=True,
-        )
+        try:
+            self.scheduler.add_job(
+                self._pre_wake_sensor,
+                trigger=IntervalTrigger(seconds=poll_interval),
+                id=prewake_job_id,
+                args=[sensor_id],
+                start_date=start_time,
+                replace_existing=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to schedule pre-wake job for {sensor_id}: {e}")
+            raise
     
     
     def _stop_polling_job(self, sensor_id: str):
@@ -713,13 +753,14 @@ class SensorManager:
         """
         sensor = self._sensors.get(sensor_id)
         if not sensor:
-            print(f"[PRE-WAKE] Sensor {sensor_id} not found!")
+            logger.warning(f"[PRE-WAKE] Sensor {sensor_id} not found!")
             return
         
-        print(f"[{sensor.get('name', sensor_id)}] >>> PRE-WAKE TRIGGERED - Turning relay ON")
+        logger.info(f"[{sensor.get('name', sensor_id)}] >>> PRE-WAKE TRIGGERED - Turning relay ON")
         
         # Only pre-wake if in power saving mode
         if sensor.get("power_mode") != PowerMode.POWER_SAVING.value:
+            logger.debug(f"[{sensor.get('name', sensor_id)}] Not in power saving mode, skipping pre-wake")
             return
         
         voltage_meter = self._find_voltage_meter_for_sensor(sensor_id)
@@ -727,18 +768,31 @@ class SensorManager:
             logger.warning(f"[{sensor['name']}] Power saving mode but no linked Voltage Meter found")
             return
         
-        vm_ip = voltage_meter["ip_address"]
+        vm_ip = voltage_meter.get("ip_address")
+        if not vm_ip:
+            logger.error(f"[{sensor['name']}] Voltage meter has no IP address")
+            return
+        
         logger.info(f"[{sensor['name']}] Pre-wake: Turning relay ON...")
         
-        # Set status to WAKING
-        sensor["status"] = SensorStatus.WAKING
-        sensor["status_reason"] = None
-        self._save_to_file()
-        
-        # Turn relay ON
-        success = await self.voltage_meter_service.set_relay(vm_ip, on=True)
-        if not success:
-            print(f"[{sensor['name']}] Failed to turn relay ON")
+        try:
+            # Set status to WAKING
+            sensor["status"] = SensorStatus.WAKING
+            sensor["status_reason"] = None
+            self._save_to_file()
+            
+            # Turn relay ON
+            success = await self.voltage_meter_service.set_relay(vm_ip, on=True)
+            if not success:
+                logger.error(f"[{sensor['name']}] Failed to turn relay ON during pre-wake")
+                sensor["status"] = SensorStatus.ERROR
+                sensor["status_reason"] = "prewake_failed"
+                self._save_to_file()
+        except Exception as e:
+            logger.error(f"[{sensor['name']}] Error during pre-wake: {e}", exc_info=True)
+            sensor["status"] = SensorStatus.ERROR
+            sensor["status_reason"] = "prewake_error"
+            self._save_to_file()
     
     
     def _find_voltage_meter_for_sensor(self, purple_air_sensor_id: str) -> Optional[dict]:
@@ -905,7 +959,7 @@ class SensorManager:
                         f"Battery: {voltage:.1f}V"
                     )
         except Exception as e:
-            print(f"Error checking voltage meter status: {e}")
+            logger.error(f"Error checking voltage meter status: {e}", exc_info=True)
         
         return result
     
@@ -1142,8 +1196,28 @@ class SensorManager:
     
     async def shutdown(self):
         """Clean up when the server is shutting down."""
-        self._save_to_file()
-        self.scheduler.shutdown(wait=False)
-        await self.purple_air_service.close()
-        await self.tempest_service.close()
-        await self.voltage_meter_service.close()
+        try:
+            # Save sensors one last time
+            self._save_to_file()
+        except Exception as e:
+            logger.error(f"Error saving sensors during shutdown: {e}", exc_info=True)
+        
+        try:
+            # Shutdown scheduler gracefully
+            self.scheduler.shutdown(wait=False)
+        except Exception as e:
+            logger.error(f"Error shutting down scheduler: {e}", exc_info=True)
+        
+        # Close HTTP clients (ensure they're closed even if one fails)
+        services_to_close = [
+            ("purple_air", self.purple_air_service),
+            ("tempest", self.tempest_service),
+            ("voltage_meter", self.voltage_meter_service),
+        ]
+        
+        for service_name, service in services_to_close:
+            try:
+                await service.close()
+                logger.debug(f"Closed {service_name} service")
+            except Exception as e:
+                logger.error(f"Error closing {service_name} service: {e}", exc_info=True)

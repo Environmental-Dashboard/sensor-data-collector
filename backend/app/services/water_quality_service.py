@@ -14,10 +14,13 @@ Author: Sensor Dashboard Team
 
 import httpx
 import io
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.models import WaterQualityReading
+
+logger = logging.getLogger(__name__)
 
 
 class WaterQualityService:
@@ -121,7 +124,7 @@ class WaterQualityService:
             except httpx.HTTPStatusError as e:
                 # Retry on server errors (502, 503, 504)
                 if e.response.status_code in [502, 503, 504] and attempt < max_retries - 1:
-                    print(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
+                    logger.warning(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
                     await asyncio.sleep(retry_delay)
                     continue
                 raise

@@ -281,7 +281,7 @@ class TempestService:
                 }
             except httpx.HTTPStatusError as e:
                 if e.response.status_code in [502, 503, 504] and attempt < max_retries - 1:
-                    print(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
+                    logger.warning(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
                     await asyncio.sleep(retry_delay)
                     continue
                 raise
@@ -302,7 +302,7 @@ class TempestService:
         """
         try:
             # Fetch from WeatherFlow Cloud API
-            print(f"[{sensor_name}] Fetching from WeatherFlow Cloud API (device: {device_id})...")
+            logger.info(f"[{sensor_name}] Fetching from WeatherFlow Cloud API (device: {device_id})...")
             raw_data = await self.fetch_from_cloud(device_id)
             
             # Parse the response
@@ -310,7 +310,7 @@ class TempestService:
             
             # Check if this is new data
             if not self.is_new_observation(device_id, obs_time):
-                print(f"[{sensor_name}] No new data (last obs: {datetime.fromtimestamp(obs_time)})")
+                logger.debug(f"[{sensor_name}] No new data (last obs: {datetime.fromtimestamp(obs_time, tz=timezone.utc)})")
                 return {
                     "status": "success",
                     "sensor_name": sensor_name,
@@ -326,7 +326,7 @@ class TempestService:
                 }
             
             # New data! Convert to CSV and upload
-            print(f"[{sensor_name}] New data detected! Uploading to Community Hub...")
+            logger.info(f"[{sensor_name}] New data detected! Uploading to Community Hub...")
             csv_data = self.convert_to_csv(reading, include_header=True)
             upload_result = await self.push_to_endpoint(csv_data, sensor_name, upload_token)
             
@@ -351,7 +351,7 @@ class TempestService:
             error_body = ""
             try:
                 error_body = e.response.text[:500]
-            except:
+            except Exception:
                 pass
             
             if e.response.status_code in [502, 503, 504]:

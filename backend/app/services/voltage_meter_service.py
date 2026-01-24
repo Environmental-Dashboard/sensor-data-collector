@@ -348,7 +348,7 @@ class VoltageMeterService:
             error_body = ""
             try:
                 error_body = e.response.text[:500]
-            except:
+            except Exception:
                 pass
             
             if e.response.status_code in [502, 503, 504]:

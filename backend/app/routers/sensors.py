@@ -52,6 +52,14 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.utils.validation import (
+    validate_ip_address,
+    validate_sensor_id,
+    validate_voltage,
+    validate_polling_frequency,
+    validate_device_id
+)
+
 logger = logging.getLogger(__name__)
 
 from app.models import (
@@ -122,18 +130,12 @@ async def add_purple_air_sensor(
     We'll give you back the sensor with its new ID.
     Then call /turn-on to start collecting data!
     """
-    # Check if the IP looks valid
-    parts = request.ip_address.split(".")
-    if len(parts) != 4:
-        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address. Should be like: 192.168.1.100")
-    
-    for part in parts:
-        try:
-            num = int(part)
-            if num < 0 or num > 255:
-                raise ValueError()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Each part of the IP should be a number from 0-255")
+    # Validate IP address
+    if not validate_ip_address(request.ip_address):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100"
+        )
     
     # Check if we already have a sensor with this IP
     existing_sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
@@ -259,13 +261,17 @@ async def add_voltage_meter(
     - linked_sensor_id: Optional - ID of the Purple Air sensor this controls
     - name: Optional - auto-generated if linked to a sensor
     """
-    # Basic IP validation
-    parts = request.ip_address.split(".")
-    if len(parts) != 4:
-        raise HTTPException(status_code=400, detail="That doesn't look like a valid IP address")
+    # Validate IP address
+    if not validate_ip_address(request.ip_address):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100"
+        )
     
     # Validate linked sensor exists if provided
     if request.linked_sensor_id:
+        if not validate_sensor_id(request.linked_sensor_id):
+            raise HTTPException(status_code=400, detail="Invalid linked sensor ID format")
         linked_sensor = manager.get_sensor(request.linked_sensor_id)
         if not linked_sensor:
             raise HTTPException(status_code=400, detail="Linked sensor not found")
@@ -326,6 +332,9 @@ async def delete_sensor(sensor_id: str, manager = Depends(get_sensor_manager)):
     This stops data collection and removes the sensor completely.
     There's no undo! Make sure you want to do this.
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
     success = manager.delete_sensor(sensor_id)
     if not success:
         raise HTTPException(status_code=404, detail="Sensor not found. Is the ID correct?")
@@ -343,12 +352,24 @@ async def update_sensor(sensor_id: str, request: UpdateSensorRequest, manager = 
     - ip_address: New IP address
     - linked_sensor_id: Link to a different sensor (voltage meters)
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
     sensor = manager.get_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
     
+    # Validate IP address if provided
+    if request.ip_address and not validate_ip_address(request.ip_address):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100"
+        )
+    
     # Validate linked_sensor_id if provided
     if request.linked_sensor_id:
+        if not validate_sensor_id(request.linked_sensor_id):
+            raise HTTPException(status_code=400, detail="Invalid linked sensor ID format")
         linked_sensor = manager.get_sensor(request.linked_sensor_id)
         if not linked_sensor:
             raise HTTPException(status_code=400, detail="Linked sensor not found")
@@ -389,6 +410,9 @@ async def get_last_sent_data(sensor_id: str, manager = Depends(get_sensor_manage
     - last_upload_attempt
     - last_error / last_error_details
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
     data = manager.get_last_sent_data(sensor_id)
     if not data:
         raise HTTPException(status_code=404, detail="Sensor not found")
@@ -417,8 +441,14 @@ async def set_polling_frequency(
 
     Internally we use 5-minute steps: 5, 10, 15, ...
     """
-    if body.minutes <= 0:
-        raise HTTPException(status_code=400, detail="minutes must be a positive integer")
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
+    if not validate_polling_frequency(body.minutes):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid polling frequency: {body.minutes}. Must be between 1 and 1440 minutes."
+        )
 
     sensor = manager.set_polling_frequency(sensor_id, body.minutes)
     if not sensor:
@@ -457,6 +487,9 @@ async def control_voltage_meter_relay(
       - on:   Force relay ON
       - off:  Force relay OFF
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
     sensor = manager.get_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Voltage meter not found")
@@ -471,6 +504,9 @@ async def control_voltage_meter_relay(
     vm_ip = sensor.ip_address
     if not vm_ip:
         raise HTTPException(status_code=400, detail="Voltage meter has no IP address configured")
+    
+    if not validate_ip_address(vm_ip):
+        raise HTTPException(status_code=400, detail=f"Invalid IP address configured: {vm_ip}")
 
     # Access the underlying VoltageMeterService via SensorManager
     vm_service = manager.voltage_meter_service
@@ -594,6 +630,16 @@ async def calibrate_voltage_meter(
     
     This only needs to be done once per device.
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
+    # Validate target voltage
+    if not validate_voltage(body.target_voltage, min_v=8.0, max_v=16.0):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid target voltage: {body.target_voltage}V. Must be between 8.0V and 16.0V."
+        )
+    
     sensor = manager.get_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Voltage meter not found")
@@ -610,6 +656,7 @@ async def calibrate_voltage_meter(
     try:
         ok = await vm_service.calibrate(vm_ip, body.target_voltage)
     except Exception as e:
+        logger.error(f"Error calibrating voltage meter {sensor_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
     
     if not ok:
@@ -661,6 +708,9 @@ async def turn_off_sensor(sensor_id: str, manager = Depends(get_sensor_manager))
     The sensor stays registered, we just stop polling.
     You can turn it back on later!
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
     sensor = manager.turn_off_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
@@ -676,6 +726,9 @@ async def trigger_fetch_now(sensor_id: str, manager = Depends(get_sensor_manager
     
     Returns the actual data if successful, or an error message if not.
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    
     result = await manager.trigger_fetch_now(sensor_id)
     
     if result.get("status") == "error" and "not found" in result.get("error_message", "").lower():
