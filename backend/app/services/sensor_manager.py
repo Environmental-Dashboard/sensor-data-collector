@@ -564,12 +564,14 @@ class SensorManager:
         is_error_status = new_status_str in error_statuses
         was_ok_before = old_status in ok_statuses
         
-        # IMPORTANT: Don't send alerts for expected state transitions in power saving mode
-        # sleeping -> inactive is common when sensor is powered off (expected)
+        # IMPORTANT: Don't send alerts for expected state transitions
+        # 1. Power saving mode transitions (sleeping <-> inactive)
+        # 2. Battery protection (sensor OFF due to low voltage - this is expected, not an error)
         is_expected_transition = (
             (old_status == "sleeping" and new_status_str == "inactive") or
             (old_status == "inactive" and new_status_str == "sleeping") or
-            (old_status == "waking" and new_status_str == "inactive")
+            (old_status == "waking" and new_status_str == "inactive") or
+            (error_type == "battery_low")  # Battery protection is expected, not an error
         )
         
         # Track when sensor enters error state (for 1-hour delay before alerting)
@@ -1005,11 +1007,11 @@ class SensorManager:
                             f"(cutoff: {v_cutoff:.1f}V)"
                         )
                     elif voltage < v_cutoff:
-                        # Voltage below cutoff = actual battery low
+                        # Voltage below cutoff = battery protection active
                         result["error_type"] = "battery_low"
                         result["error_message"] = (
-                            f"Battery Low ({voltage:.1f}V) - Sensor powered off "
-                            f"(cutoff: {v_cutoff:.1f}V)"
+                            f"Battery Protection Active - Voltage {voltage:.1f}V below cutoff {v_cutoff:.1f}V. "
+                            f"Sensor will auto-resume when battery charges above {vm_status.get('v_reconnect', 12.9):.1f}V"
                         )
                     else:
                         # Load OFF but voltage OK and not power saving = unknown reason
