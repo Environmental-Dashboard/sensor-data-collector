@@ -190,6 +190,9 @@ class SensorManager:
                     if sensor_copy.get("created_at"):
                         if isinstance(sensor_copy["created_at"], datetime):
                             sensor_copy["created_at"] = sensor_copy["created_at"].isoformat()
+                    if sensor_copy.get("error_start_time"):
+                        if isinstance(sensor_copy["error_start_time"], datetime):
+                            sensor_copy["error_start_time"] = sensor_copy["error_start_time"].isoformat()
                     
                     data[sensor_id] = sensor_copy
                 except Exception as e:
@@ -569,9 +572,44 @@ class SensorManager:
             (old_status == "waking" and new_status_str == "inactive")
         )
         
-        # Send error alert if transitioning to error/inactive state (but not expected transitions)
-        if is_error_status and was_ok_before and error_message and not is_expected_transition:
-            logger.warning(f"[{sensor_name}] Status changed: {old_status} -> {new_status_str}")
+        # Track when sensor enters error state (for 1-hour delay before alerting)
+        if is_error_status and was_ok_before and not is_expected_transition:
+            # Record when error state started
+            sensor["error_start_time"] = datetime.now(timezone.utc)
+            logger.info(f"[{sensor_name}] Entered error state at {sensor['error_start_time']}")
+        
+        # Check if sensor has been in error state for more than 1 hour
+        should_send_alert = False
+        if is_error_status and error_message and not is_expected_transition:
+            error_start_time = sensor.get("error_start_time")
+            if error_start_time:
+                # Convert to datetime if it's a string
+                if isinstance(error_start_time, str):
+                    from dateutil.parser import parse
+                    error_start_time = parse(error_start_time)
+                elif not isinstance(error_start_time, datetime):
+                    # If it's not a datetime, use current time (fallback)
+                    error_start_time = datetime.now(timezone.utc)
+                    sensor["error_start_time"] = error_start_time
+                
+                # Calculate how long sensor has been down
+                elapsed_seconds = (datetime.now(timezone.utc) - error_start_time).total_seconds()
+                elapsed_hours = elapsed_seconds / 3600
+                
+                # Only send alert if down for more than 1 hour
+                if elapsed_hours >= 1.0:
+                    should_send_alert = True
+                    logger.warning(f"[{sensor_name}] Sensor down for {elapsed_hours:.1f} hours - sending alert")
+                else:
+                    logger.debug(f"[{sensor_name}] Sensor down for {elapsed_hours:.1f} hours - waiting for 1 hour threshold")
+            else:
+                # No error_start_time recorded yet - this is the first time entering error state
+                # Don't send alert immediately, just record the time
+                sensor["error_start_time"] = datetime.now(timezone.utc)
+                logger.info(f"[{sensor_name}] First time entering error state - recording start time, will alert after 1 hour")
+        
+        # Send error alert only if sensor has been down for > 1 hour
+        if should_send_alert:
             self.email_service.send_sensor_error_alert(
                 sensor_id=sensor_id,
                 sensor_name=sensor_name,
@@ -589,6 +627,28 @@ class SensorManager:
         is_normal_recovery = (old_status == "inactive" and new_status_str == "sleeping")
         
         if was_error_before and is_ok_now and not is_normal_recovery:
+            # Clear error start time when sensor recovers
+            if "error_start_time" in sensor:
+                error_start_time_str = sensor.get("error_start_time")
+                if error_start_time_str:
+                    # Calculate how long it was down
+                    try:
+                        if isinstance(error_start_time_str, str):
+                            if error_start_time_str.endswith('Z'):
+                                error_start_time_str = error_start_time_str[:-1] + '+00:00'
+                            error_start_time = datetime.fromisoformat(error_start_time_str.replace('Z', '+00:00'))
+                        elif isinstance(error_start_time_str, datetime):
+                            error_start_time = error_start_time_str
+                        else:
+                            error_start_time = None
+                        
+                        if error_start_time:
+                            downtime_hours = (datetime.now(timezone.utc) - error_start_time).total_seconds() / 3600
+                            logger.info(f"[{sensor_name}] Recovered after {downtime_hours:.1f} hours")
+                    except (ValueError, AttributeError):
+                        pass
+                del sensor["error_start_time"]
+            
             logger.info(f"[{sensor_name}] Recovered: {old_status} -> {new_status_str}")
             self.email_service.send_sensor_recovery_alert(
                 sensor_id=sensor_id,
