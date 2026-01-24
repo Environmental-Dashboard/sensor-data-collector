@@ -88,6 +88,7 @@ export default function App() {
   const [editModal, setEditModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
   const [thresholdsModal, setThresholdsModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
   const [calibrateModal, setCalibrateModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
+  const [linkBatteryModal, setLinkBatteryModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
 
   // Toast helpers
   const showToast = useCallback((type: 'success' | 'error', message: string) => {
@@ -303,6 +304,23 @@ export default function App() {
     setActionLoading(null);
   };
 
+  // Link a voltage meter to a Purple Air sensor
+  const handleLinkVoltageMeter = async (purpleAirSensor: Sensor, voltageMeterSensor: Sensor) => {
+    setActionLoading(voltageMeterSensor.id);
+    try {
+      await api.updateSensor(voltageMeterSensor.id, { 
+        linked_sensor_id: purpleAirSensor.id 
+      });
+      showToast('success', `${voltageMeterSensor.name} linked to ${purpleAirSensor.name}`);
+      setLinkBatteryModal({ open: false, sensor: null });
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to link battery monitor';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
   const handleAddSensor = async (data: AddPurpleAirRequest | AddTempestRequest | AddVoltageMeterRequest) => {
     try {
       if (activeTab === 'purple_air') {
@@ -446,6 +464,7 @@ export default function App() {
                     onCalibrate={sensor.sensor_type === 'voltage_meter' ? () => setCalibrateModal({ open: true, sensor }) : undefined}
                     relayLoading={actionLoading === sensor.id}
                     voltageMeterSensors={sensors.filter(s => s.sensor_type === 'voltage_meter' && !s.linked_sensor_id)}
+                    onLinkBatteryMonitor={sensor.sensor_type === 'purple_air' ? () => setLinkBatteryModal({ open: true, sensor }) : undefined}
                   />
                 ))}
               </div>
@@ -502,6 +521,17 @@ export default function App() {
         />
       )}
 
+      {/* Link Battery Monitor Modal */}
+      {linkBatteryModal.open && linkBatteryModal.sensor && (
+        <LinkBatteryModal
+          sensor={linkBatteryModal.sensor}
+          availableVoltageMeters={sensors.filter(s => s.sensor_type === 'voltage_meter' && !s.linked_sensor_id)}
+          onClose={() => setLinkBatteryModal({ open: false, sensor: null })}
+          onLink={(voltageMeter) => handleLinkVoltageMeter(linkBatteryModal.sensor!, voltageMeter)}
+          loading={actionLoading !== null}
+        />
+      )}
+
       {/* Toasts */}
       <div className="toast-container">
         {toasts.map(toast => (
@@ -534,10 +564,10 @@ interface SensorCardProps {
   onCalibrate?: () => void;
   relayLoading?: boolean;
   voltageMeterSensors?: Sensor[];
-  onLinkVoltageMeter?: (voltageMeterI: string) => void;
+  onLinkBatteryMonitor?: () => void;
 }
 
-function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, onCalibrate, relayLoading, voltageMeterSensors, onLinkVoltageMeter }: SensorCardProps) {
+function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, onCalibrate, relayLoading, voltageMeterSensors, onLinkBatteryMonitor }: SensorCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -751,9 +781,9 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
               )}
               
               {/* Link Battery Monitor */}
-              {sensor.sensor_type === 'purple_air' && voltageMeterSensors && voltageMeterSensors.length > 0 && (
-                <button className="dropdown-item" onClick={() => { onLinkVoltageMeter?.(voltageMeterSensors[0].id); setShowMenu(false); }}>
-                  <Link size={14} /> Link Battery Monitor
+              {sensor.sensor_type === 'purple_air' && voltageMeterSensors && voltageMeterSensors.length > 0 && onLinkBatteryMonitor && (
+                <button className="dropdown-item" onClick={() => { onLinkBatteryMonitor(); setShowMenu(false); }}>
+                  <Link size={14} /> Link Battery Monitor ({voltageMeterSensors.length} available)
                 </button>
               )}
 
@@ -1088,8 +1118,8 @@ interface ThresholdsModalProps {
 }
 
 function ThresholdsModal({ sensor, onClose, onSave, loading }: ThresholdsModalProps) {
-  const [cutoff, setCutoff] = useState('11.0');
-  const [reconnect, setReconnect] = useState('12.6');
+  const [cutoff, setCutoff] = useState(sensor.v_cutoff?.toString() || '11.0');
+  const [reconnect, setReconnect] = useState(sensor.v_reconnect?.toString() || '12.6');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1229,6 +1259,69 @@ function CalibrateModal({ sensor, onClose, onSave, loading }: CalibrateModalProp
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+
+// Link Battery Monitor Modal
+interface LinkBatteryModalProps {
+  sensor: Sensor;
+  availableVoltageMeters: Sensor[];
+  onClose: () => void;
+  onLink: (voltageMeter: Sensor) => void;
+  loading: boolean;
+}
+
+function LinkBatteryModal({ sensor, availableVoltageMeters, onClose, onLink, loading }: LinkBatteryModalProps) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Link Battery Monitor</h2>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="modal-body">
+          <p className="form-hint" style={{marginBottom: '20px'}}>
+            Select a battery monitor to link to <strong>{sensor.name}</strong>.
+            This will allow the system to control power to this sensor.
+          </p>
+          
+          {availableVoltageMeters.length === 0 ? (
+            <div className="empty-state" style={{padding: '20px', textAlign: 'center'}}>
+              <Battery size={40} style={{opacity: 0.3, marginBottom: '10px'}} />
+              <p>No available battery monitors</p>
+              <p className="form-hint">Add a battery monitor first, or unlink an existing one.</p>
+            </div>
+          ) : (
+            <div className="voltage-meter-list">
+              {availableVoltageMeters.map(vm => (
+                <button
+                  key={vm.id}
+                  className="voltage-meter-option"
+                  onClick={() => onLink(vm)}
+                  disabled={loading}
+                >
+                  <div className="vm-info">
+                    <div className="vm-name">{vm.name}</div>
+                    <div className="vm-details">
+                      <span className="vm-location">{vm.location}</span>
+                      {vm.battery_volts !== null && (
+                        <span className="vm-voltage">{vm.battery_volts.toFixed(2)}V</span>
+                      )}
+                      <span className={`vm-status ${vm.status}`}>{vm.status}</span>
+                    </div>
+                  </div>
+                  <Link size={16} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
+        </div>
       </div>
     </div>
   );

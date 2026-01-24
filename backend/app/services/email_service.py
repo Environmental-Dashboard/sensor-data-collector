@@ -231,8 +231,9 @@ class EmailService:
         
         # Track sent alerts to avoid spam (sensor_id -> last_alert_time)
         self._last_alerts: dict[str, datetime] = {}
-        # Minimum time between alerts for the same sensor (5 minutes)
-        self.alert_cooldown_seconds = int(os.getenv("ALERT_COOLDOWN", "300"))
+        # Minimum time between alerts for the same sensor (10 minutes)
+        # This prevents spam when sensor status fluctuates
+        self.alert_cooldown_seconds = int(os.getenv("ALERT_COOLDOWN", "600"))
         
         # Check if email is configured
         self.is_configured = bool(self.smtp_user and self.smtp_password)

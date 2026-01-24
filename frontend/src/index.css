@@ -1698,3 +1698,76 @@ html:not(.dark) .form-error {
 .dark .field-value {
   color: var(--grey-100);
 }
+
+/* ============================================
+   LINK BATTERY MODAL
+   ============================================ */
+.voltage-meter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voltage-meter-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.voltage-meter-option:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+}
+
+.voltage-meter-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vm-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vm-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.vm-details {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.vm-voltage {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  color: var(--success);
+}
+
+.vm-status {
+  text-transform: capitalize;
+}
+
+.vm-status.active {
+  color: var(--success);
+}
+
+.vm-status.inactive {
+  color: var(--warning);
+}
+
+.vm-status.error {
+  color: var(--error);
+}

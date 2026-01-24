@@ -46,10 +46,13 @@ GET    /api/sensors/do-sensor     - List DO sensors
 Author: Frank Kusi Appiah
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 from app.models import (
     SensorType,
@@ -344,14 +347,20 @@ async def update_sensor(sensor_id: str, request: UpdateSensorRequest, manager = 
     if not sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
     
-    # Update allowed fields
-    updates = request.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        if value is not None and hasattr(sensor, key):
-            setattr(sensor, key, value)
+    # Validate linked_sensor_id if provided
+    if request.linked_sensor_id:
+        linked_sensor = manager.get_sensor(request.linked_sensor_id)
+        if not linked_sensor:
+            raise HTTPException(status_code=400, detail="Linked sensor not found")
+        if linked_sensor.sensor_type != SensorType.PURPLE_AIR:
+            raise HTTPException(status_code=400, detail="Can only link voltage meters to Purple Air sensors")
     
-    manager._save_to_file()
-    return sensor
+    # Use the manager's update method to properly persist changes
+    updated_sensor = manager.update_sensor(sensor_id, request)
+    if not updated_sensor:
+        raise HTTPException(status_code=404, detail="Failed to update sensor")
+    
+    return updated_sensor
 
 
 @router.get("/{sensor_id}/status")
@@ -470,8 +479,8 @@ async def control_voltage_meter_relay(
         if mode == "auto":
             ok = await vm_service.set_auto_mode(vm_ip, auto=True)
         else:
-            # When forcing ON/OFF, disable auto mode so manual control sticks
-            await vm_service.set_auto_mode(vm_ip, auto=False)
+            # When forcing ON/OFF, disable auto mode first, then set relay
+            auto_ok = await vm_service.set_auto_mode(vm_ip, auto=False)
             ok = await vm_service.set_relay(vm_ip, on=(mode == "on"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
@@ -479,14 +488,19 @@ async def control_voltage_meter_relay(
     if not ok:
         raise HTTPException(status_code=502, detail="Voltage meter did not accept relay command")
 
+    # CRITICAL: Wait a moment for ESP32 to process, then fetch updated state
+    import asyncio
+    await asyncio.sleep(0.5)
+    
     # Update sensor data with new relay state
     try:
         status = await vm_service.get_status(vm_ip)
         if status:
             manager.update_sensor_field(sensor_id, "auto_mode", status.get("auto_mode"))
             manager.update_sensor_field(sensor_id, "load_on", status.get("load_on"))
-    except Exception:
-        pass  # Don't fail the request if we can't update the cached state
+            logger.info(f"Relay state updated: auto={status.get('auto_mode')}, load_on={status.get('load_on')}")
+    except Exception as e:
+        logger.error(f"Failed to update cached relay state: {e}")
 
     return {
         "status": "ok",
@@ -541,6 +555,18 @@ async def set_voltage_meter_thresholds(
     if not ok:
         raise HTTPException(status_code=502, detail="Voltage meter did not accept thresholds")
     
+    # Wait a moment then fetch updated state
+    import asyncio
+    await asyncio.sleep(0.5)
+    
+    try:
+        status = await vm_service.get_status(vm_ip)
+        if status:
+            manager.update_sensor_field(sensor_id, "v_cutoff", status.get("v_cutoff"))
+            manager.update_sensor_field(sensor_id, "v_reconnect", status.get("v_reconnect"))
+    except Exception as e:
+        logger.error(f"Failed to update cached thresholds: {e}")
+    
     return {
         "status": "ok",
         "sensor_id": sensor_id,
@@ -588,6 +614,18 @@ async def calibrate_voltage_meter(
     
     if not ok:
         raise HTTPException(status_code=502, detail="Voltage meter did not accept calibration")
+    
+    # Wait a moment then fetch updated voltage reading
+    import asyncio
+    await asyncio.sleep(0.5)
+    
+    try:
+        status = await vm_service.get_status(vm_ip)
+        if status:
+            manager.update_sensor_field(sensor_id, "battery_volts", status.get("voltage_v"))
+            logger.info(f"Calibration applied: new reading = {status.get('voltage_v')}V")
+    except Exception as e:
+        logger.error(f"Failed to update cached voltage after calibration: {e}")
     
     return {
         "status": "ok",
@@ -685,7 +723,8 @@ async def set_power_mode(
                 detail="Power saving mode requires a linked Voltage Meter to control power"
             )
     
-    result = manager.set_power_mode(sensor_id, power_mode)
+    # Use the async version
+    result = await manager.set_power_mode_async(sensor_id, power_mode)
     if not result:
         raise HTTPException(status_code=404, detail="Sensor not found")
     

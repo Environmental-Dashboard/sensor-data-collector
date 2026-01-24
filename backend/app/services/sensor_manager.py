@@ -357,8 +357,8 @@ class SensorManager:
             sensors = [s for s in sensors if s["sensor_type"] == sensor_type]
         
         return [SensorResponse(**{k: v for k, v in s.items() if k != "upload_token"}) for s in sensors]
-
-
+    
+    
     def set_polling_frequency(self, sensor_id: str, minutes: int) -> Optional[SensorResponse]:
         """
         Update polling frequency for a sensor (in minutes).
@@ -432,6 +432,47 @@ class SensorManager:
         return True
     
     
+    def update_sensor(self, sensor_id: str, request) -> Optional[SensorResponse]:
+        """
+        Update a sensor's fields from an UpdateSensorRequest.
+        
+        Handles:
+        - Basic fields: name, location, ip_address, device_id, upload_token, power_mode
+        - linked_sensor_id: For voltage meters, links to a Purple Air sensor
+        """
+        if sensor_id not in self._sensors:
+            return None
+        
+        sensor = self._sensors[sensor_id]
+        updates = request.model_dump(exclude_unset=True)
+        
+        # Handle linked_sensor_id specially - also update linked_sensor_name
+        if "linked_sensor_id" in updates:
+            linked_id = updates["linked_sensor_id"]
+            if linked_id:
+                linked_sensor = self._sensors.get(linked_id)
+                if linked_sensor:
+                    sensor["linked_sensor_id"] = linked_id
+                    sensor["linked_sensor_name"] = linked_sensor.get("name")
+                    logger.info(f"Linked sensor {sensor_id} to {linked_id} ({linked_sensor.get('name')})")
+            else:
+                # Clear the link
+                sensor["linked_sensor_id"] = None
+                sensor["linked_sensor_name"] = None
+                logger.info(f"Unlinked sensor {sensor_id}")
+            del updates["linked_sensor_id"]
+        
+        # Update other fields (allow adding new fields too)
+        allowed_fields = {"name", "location", "ip_address", "device_id", "upload_token", "power_mode"}
+        for key, value in updates.items():
+            if value is not None and key in allowed_fields:
+                sensor[key] = value
+        
+        self._save_to_file()
+        
+        return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
+    
+    
     def _update_sensor_status(
         self, 
         sensor: dict, 
@@ -476,6 +517,7 @@ class SensorManager:
         logger.debug(f"[{sensor_name}] Status transition: {old_status} -> {new_status_str}")
         
         # Define status categories (as strings for comparison)
+        # NOTE: "sleeping" and "waking" are NORMAL states in power saving mode, not errors
         error_statuses = ["error", "inactive", "offline"]
         ok_statuses = ["active", "sleeping", "waking"]
         
@@ -483,8 +525,16 @@ class SensorManager:
         is_error_status = new_status_str in error_statuses
         was_ok_before = old_status in ok_statuses
         
-        # Send error alert if transitioning to error/inactive state
-        if is_error_status and was_ok_before and error_message:
+        # IMPORTANT: Don't send alerts for expected state transitions in power saving mode
+        # sleeping -> inactive is common when sensor is powered off (expected)
+        is_expected_transition = (
+            (old_status == "sleeping" and new_status_str == "inactive") or
+            (old_status == "inactive" and new_status_str == "sleeping") or
+            (old_status == "waking" and new_status_str == "inactive")
+        )
+        
+        # Send error alert if transitioning to error/inactive state (but not expected transitions)
+        if is_error_status and was_ok_before and error_message and not is_expected_transition:
             logger.warning(f"[{sensor_name}] Status changed: {old_status} -> {new_status_str}")
             self.email_service.send_sensor_error_alert(
                 sensor_id=sensor_id,
@@ -495,11 +545,14 @@ class SensorManager:
                 location=location
             )
         
-        # Send recovery alert if coming back online
+        # Send recovery alert if coming back online (but not for normal power saving transitions)
         was_error_before = old_status in error_statuses
         is_ok_now = new_status_str in ["active", "sleeping"]
         
-        if was_error_before and is_ok_now:
+        # Don't send recovery for normal transitions back to sleeping from inactive
+        is_normal_recovery = (old_status == "inactive" and new_status_str == "sleeping")
+        
+        if was_error_before and is_ok_now and not is_normal_recovery:
             logger.info(f"[{sensor_name}] Recovered: {old_status} -> {new_status_str}")
             self.email_service.send_sensor_recovery_alert(
                 sensor_id=sensor_id,
@@ -974,6 +1027,24 @@ class SensorManager:
             sensor["status_reason"] = None
             sensor["last_active"] = datetime.now(timezone.utc)
             sensor["last_error"] = None
+            
+            # Save CSV sample
+            if result.get("csv_sample"):
+                sensor["last_csv_sample"] = result["csv_sample"]
+            
+            # Update voltage meter specific fields
+            if sensor["sensor_type"] == SensorType.VOLTAGE_METER:
+                reading = result.get("reading", {})
+                if reading.get("voltage_v") is not None:
+                    sensor["battery_volts"] = reading["voltage_v"]
+                if reading.get("auto_mode") is not None:
+                    sensor["auto_mode"] = reading["auto_mode"]
+                if reading.get("load_on") is not None:
+                    sensor["load_on"] = reading["load_on"]
+                if reading.get("v_cutoff") is not None:
+                    sensor["v_cutoff"] = reading["v_cutoff"]
+                if reading.get("v_reconnect") is not None:
+                    sensor["v_reconnect"] = reading["v_reconnect"]
         else:
             # Apply smart error detection for Purple Air sensors with voltage meters
             if sensor["sensor_type"] == SensorType.PURPLE_AIR and voltage_meter:
@@ -1006,8 +1077,8 @@ class SensorManager:
     # POWER MODE
     # =========================================================================
     
-    def set_power_mode(self, sensor_id: str, power_mode: str) -> Optional[SensorResponse]:
-        """Set the power mode for a Purple Air sensor."""
+    async def set_power_mode_async(self, sensor_id: str, power_mode: str) -> Optional[SensorResponse]:
+        """Set the power mode for a Purple Air sensor (async version)."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
             return None
@@ -1032,10 +1103,18 @@ class SensorManager:
                 try:
                     vm_ip = voltage_meter.get("ip_address")
                     if vm_ip:
+                        logger.info(f"[{sensor['name']}] Switching to normal mode - setting voltage meter to AUTO")
                         # Let the ESP32 handle cutoff/reconnect logic automatically
-                        asyncio.create_task(self.voltage_meter_service.set_auto_mode(vm_ip, auto=True))
+                        await self.voltage_meter_service.set_auto_mode(vm_ip, auto=True)
+                        # Update cached state
+                        await asyncio.sleep(0.5)
+                        status = await self.voltage_meter_service.get_status(vm_ip)
+                        if status:
+                            voltage_meter["auto_mode"] = status.get("auto_mode")
+                            voltage_meter["load_on"] = status.get("load_on")
+                            self._save_to_file()
                 except Exception as e:
-                    print(f"Warning: failed to set voltage meter auto mode for sensor {sensor_id}: {e}")
+                    logger.error(f"Failed to set voltage meter auto mode for sensor {sensor_id}: {e}")
         
         # Restart polling job to update pre-wake schedule
         if sensor["is_active"]:
@@ -1045,6 +1124,16 @@ class SensorManager:
         self._save_to_file()
         
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
+    
+    def set_power_mode(self, sensor_id: str, power_mode: str) -> Optional[SensorResponse]:
+        """Set the power mode for a Purple Air sensor (sync wrapper)."""
+        # Use asyncio to run the async version
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self.set_power_mode_async(sensor_id, power_mode))
+        finally:
+            loop.close()
     
     
     # =========================================================================
