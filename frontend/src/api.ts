@@ -4,20 +4,33 @@ import type { Sensor, SensorListResponse, AddPurpleAirRequest, AddTempestRequest
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Error: ${res.status}`);
+  try {
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+    
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || `Error: ${res.status} ${res.statusText}`);
+    }
+    
+    return res.json();
+  } catch (error: any) {
+    // Handle network errors (fetch failed completely)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error(`Cannot connect to backend. Check if backend is running at ${API_URL}`);
+    }
+    // Re-throw if it's already an Error with a message
+    if (error instanceof Error) {
+      throw error;
+    }
+    // Otherwise wrap in Error
+    throw new Error(String(error));
   }
-  
-  return res.json();
 }
 
 // Health check

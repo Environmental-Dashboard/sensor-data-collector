@@ -655,12 +655,16 @@ async def calibrate_voltage_meter(
     
     try:
         ok = await vm_service.calibrate(vm_ip, body.target_voltage)
+        if not ok:
+            raise HTTPException(status_code=502, detail="Voltage meter did not accept calibration")
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(f"Error calibrating voltage meter {sensor_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
-    
-    if not ok:
-        raise HTTPException(status_code=502, detail="Voltage meter did not accept calibration")
+        # Extract error message from exception
+        error_msg = str(e) if str(e) else "Unknown error"
+        raise HTTPException(status_code=500, detail=error_msg)
     
     # Wait a moment then fetch updated voltage reading
     import asyncio

@@ -217,11 +217,28 @@ class VoltageMeterService:
             url = f"http://{ip_address}/settings?target={target_voltage}"
             response = await self.http_client.get(url)
             response.raise_for_status()
-            logger.info(f"Calibration set on {ip_address} with target={target_voltage}V")
+            
+            # Try to parse response to verify it worked
+            try:
+                data = response.json()
+                logger.info(f"Calibration set on {ip_address} with target={target_voltage}V. Response: {data}")
+            except Exception:
+                # Some ESP32s might return plain text or empty response, that's OK
+                logger.info(f"Calibration set on {ip_address} with target={target_voltage}V")
+            
             return True
+        except httpx.ConnectError as e:
+            logger.error(f"Cannot connect to voltage meter at {ip_address} for calibration: {e}")
+            raise Exception(f"Cannot connect to ESP32 at {ip_address}. Check power and network connection.")
+        except httpx.TimeoutException:
+            logger.error(f"Timeout connecting to voltage meter at {ip_address} for calibration")
+            raise Exception(f"ESP32 at {ip_address} did not respond. Check power and network connection.")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error calibrating voltage meter at {ip_address}: {e.response.status_code}")
+            raise Exception(f"ESP32 returned error {e.response.status_code}. Check ESP32 firmware.")
         except Exception as e:
             logger.error(f"Error calibrating voltage meter at {ip_address}: {e}")
-            return False
+            raise Exception(f"Calibration failed: {str(e)}")
     
     
     def create_csv_row(self, status: dict) -> str:

@@ -298,7 +298,26 @@ export default function App() {
       setCalibrateModal({ open: false, sensor: null });
       fetchSensors();
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to calibrate';
+      let msg = 'Failed to calibrate';
+      if (e?.message) {
+        msg = e.message;
+      } else if (typeof e === 'string') {
+        msg = e;
+      } else if (e?.detail) {
+        msg = e.detail;
+      }
+      
+      // Provide more helpful error messages
+      if (msg.includes('Cannot connect') || msg.includes('fetch')) {
+        msg = 'Cannot reach backend server. Check connection.';
+      } else if (msg.includes('502') || msg.includes('did not accept')) {
+        msg = `ESP32 did not respond. Check IP address (${sensor.ip_address}) and ensure ESP32 is powered on.`;
+      } else if (msg.includes('timeout') || msg.includes('Timeout')) {
+        msg = `ESP32 timeout. Check IP address (${sensor.ip_address}) and network connection.`;
+      } else if (msg.includes('connection') || msg.includes('connect')) {
+        msg = `Cannot connect to ESP32 at ${sensor.ip_address}. Check power and network.`;
+      }
+      
       showToast('error', msg);
     }
     setActionLoading(null);
