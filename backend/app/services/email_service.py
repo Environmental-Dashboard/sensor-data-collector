@@ -218,7 +218,7 @@ class EmailService:
     
     # New sensor notification recipients
     NEW_SENSOR_TO = ["gaurav@communityhub.cloud", "pratyush@communityhub.cloud"]
-    NEW_SENSOR_CC = ["john.petersen@oberlin.edu", "cransom@oberlin.edu", "msimoya@oberlin.edu"]
+    NEW_SENSOR_CC = ["john.petersen@oberlin.edu", "cransom@oberlin.edu", "msimoya@oberlin.edu", "menard@oberlin.edu"]
     
     def __init__(self):
         """Initialize email service with configuration from environment."""
