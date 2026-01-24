@@ -823,81 +823,81 @@ class SensorManager:
         try:
             power_mode = sensor.get("power_mode")
             voltage_meter = self._find_voltage_meter_for_sensor(sensor_id)
-        
-        # Power saving mode handling
-        if power_mode == PowerMode.POWER_SAVING.value and voltage_meter:
-            vm_ip = voltage_meter["ip_address"]
             
-            # Sensor should be waking/already awake from pre-wake job
-            logger.info(f"[{sensor['name']}] Power saving: Fetching data...")
-            
-            # Fetch data
-            result = await self.purple_air_service.fetch_and_push(
-                ip_address=sensor["ip_address"],
-                sensor_name=sensor["name"],
-                upload_token=sensor["upload_token"]
-            )
-            
-            # Turn relay OFF after fetching (go back to sleep)
-            await asyncio.sleep(self.POWER_OFF_DELAY)
-            logger.info(f"[{sensor['name']}] Power saving: Turning relay OFF...")
-            await self.voltage_meter_service.set_relay(vm_ip, on=False)
-            
-            # Handle result
-            if result["status"] == "success":
-                self._update_sensor_status(sensor, SensorStatus.SLEEPING)
-                sensor["last_active"] = datetime.now(timezone.utc)
-                if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
-                    sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
-            else:
-                # Smart error detection - pass power_mode so it knows load OFF might be expected
-                result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
-                error_type = result.get("error_type")
-                error_msg = result.get("error_message", "Unknown error")
+            # Power saving mode handling
+            if power_mode == PowerMode.POWER_SAVING.value and voltage_meter:
+                vm_ip = voltage_meter["ip_address"]
                 
-                if error_type == "battery_low":
-                    self._update_sensor_status(sensor, SensorStatus.OFFLINE, error_msg, error_type)
-                elif error_type == "sleeping":
-                    # In power saving mode, load OFF with good voltage = sleeping (not an error)
+                # Sensor should be waking/already awake from pre-wake job
+                logger.info(f"[{sensor['name']}] Power saving: Fetching data...")
+                
+                # Fetch data
+                result = await self.purple_air_service.fetch_and_push(
+                    ip_address=sensor["ip_address"],
+                    sensor_name=sensor["name"],
+                    upload_token=sensor["upload_token"]
+                )
+                
+                # Turn relay OFF after fetching (go back to sleep)
+                await asyncio.sleep(self.POWER_OFF_DELAY)
+                logger.info(f"[{sensor['name']}] Power saving: Turning relay OFF...")
+                await self.voltage_meter_service.set_relay(vm_ip, on=False)
+                
+                # Handle result
+                if result["status"] == "success":
                     self._update_sensor_status(sensor, SensorStatus.SLEEPING)
-                elif error_type in ["connection_error", "timeout"]:
-                    # Not responding = INACTIVE (not error)
-                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                    sensor["last_active"] = datetime.now(timezone.utc)
+                    if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
+                        sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
                 else:
-                    # Real errors (cloud_error, data_error, etc.)
-                    self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
-                
-                if result.get("battery_voltage") is not None:
-                    sensor["battery_volts"] = result["battery_voltage"]
-        else:
-            # Normal mode - just fetch directly
-            result = await self.purple_air_service.fetch_and_push(
-                ip_address=sensor["ip_address"],
-                sensor_name=sensor["name"],
-                upload_token=sensor["upload_token"]
-            )
-            
-            if result["status"] == "success":
-                self._update_sensor_status(sensor, SensorStatus.ACTIVE)
-                sensor["last_active"] = datetime.now(timezone.utc)
-                if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
-                    sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
-            else:
-                # Check if there's a linked voltage meter for error detection
-                if voltage_meter:
+                    # Smart error detection - pass power_mode so it knows load OFF might be expected
                     result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
+                    error_type = result.get("error_type")
+                    error_msg = result.get("error_message", "Unknown error")
+                    
+                    if error_type == "battery_low":
+                        self._update_sensor_status(sensor, SensorStatus.OFFLINE, error_msg, error_type)
+                    elif error_type == "sleeping":
+                        # In power saving mode, load OFF with good voltage = sleeping (not an error)
+                        self._update_sensor_status(sensor, SensorStatus.SLEEPING)
+                    elif error_type in ["connection_error", "timeout"]:
+                        # Not responding = INACTIVE (not error)
+                        self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                    else:
+                        # Real errors (cloud_error, data_error, etc.)
+                        self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
+                    
+                    if result.get("battery_voltage") is not None:
+                        sensor["battery_volts"] = result["battery_voltage"]
+            else:
+                # Normal mode - just fetch directly
+                result = await self.purple_air_service.fetch_and_push(
+                    ip_address=sensor["ip_address"],
+                    sensor_name=sensor["name"],
+                    upload_token=sensor["upload_token"]
+                )
                 
-                error_type = result.get("error_type")
-                error_msg = result.get("error_message", "Unknown error")
-                
-                if error_type == "battery_low":
-                    self._update_sensor_status(sensor, SensorStatus.OFFLINE, error_msg, error_type)
-                elif error_type in ["connection_error", "timeout"]:
-                    # Not responding = INACTIVE (not error)
-                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                if result["status"] == "success":
+                    self._update_sensor_status(sensor, SensorStatus.ACTIVE)
+                    sensor["last_active"] = datetime.now(timezone.utc)
+                    if "upload_result" in result and "csv_sample" in result.get("upload_result", {}):
+                        sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
                 else:
-                    # Real errors (cloud_error, data_error, etc.)
-                    self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
+                    # Check if there's a linked voltage meter for error detection
+                    if voltage_meter:
+                        result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
+                    
+                    error_type = result.get("error_type")
+                    error_msg = result.get("error_message", "Unknown error")
+                    
+                    if error_type == "battery_low":
+                        self._update_sensor_status(sensor, SensorStatus.OFFLINE, error_msg, error_type)
+                    elif error_type in ["connection_error", "timeout"]:
+                        # Not responding = INACTIVE (not error)
+                        self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                    else:
+                        # Real errors (cloud_error, data_error, etc.)
+                        self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         
         except Exception as e:
             logger.error(f"[{sensor.get('name', sensor_id)}] Error during poll: {e}", exc_info=True)
