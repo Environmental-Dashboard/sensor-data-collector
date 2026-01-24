@@ -817,10 +817,12 @@ class SensorManager:
         """
         sensor = self._sensors.get(sensor_id)
         if not sensor:
+            logger.warning(f"[POLL] Sensor {sensor_id} not found, skipping poll")
             return
         
-        power_mode = sensor.get("power_mode")
-        voltage_meter = self._find_voltage_meter_for_sensor(sensor_id)
+        try:
+            power_mode = sensor.get("power_mode")
+            voltage_meter = self._find_voltage_meter_for_sensor(sensor_id)
         
         # Power saving mode handling
         if power_mode == PowerMode.POWER_SAVING.value and voltage_meter:
@@ -897,7 +899,11 @@ class SensorManager:
                     # Real errors (cloud_error, data_error, etc.)
                     self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         
-        self._save_to_file()
+        except Exception as e:
+            logger.error(f"[{sensor.get('name', sensor_id)}] Error during poll: {e}", exc_info=True)
+            self._update_sensor_status(sensor, SensorStatus.ERROR, f"Poll error: {str(e)}", "poll_error")
+        finally:
+            self._save_to_file()
     
     
     async def _enhance_error_with_voltage_meter_status(
@@ -968,77 +974,87 @@ class SensorManager:
         """Poll a Tempest sensor (runs every 60 seconds)."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
+            logger.warning(f"[POLL] Sensor {sensor_id} not found, skipping poll")
             return
         
-        result = await self.tempest_service.fetch_and_push(
-            ip_address=sensor["ip_address"],
-            device_id=sensor["device_id"],
-            sensor_name=sensor["name"],
-            upload_token=sensor["upload_token"]
-        )
-        
-        if result["status"] == "success":
-            self._update_sensor_status(sensor, SensorStatus.ACTIVE)
-            sensor["last_active"] = datetime.now(timezone.utc)
-            # Update battery voltage from reading
-            if result.get("reading") and result["reading"].get("battery_volts"):
-                sensor["battery_volts"] = result["reading"]["battery_volts"]
-        else:
-            error_type = result.get("error_type")
-            error_msg = result.get("error_message", "Unknown error")
+        try:
+            result = await self.tempest_service.fetch_and_push(
+                ip_address=sensor["ip_address"],
+                device_id=sensor["device_id"],
+                sensor_name=sensor["name"],
+                upload_token=sensor["upload_token"]
+            )
             
-            if error_type in ["connection_error", "timeout"]:
-                # API not responding = INACTIVE
-                self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+            if result["status"] == "success":
+                self._update_sensor_status(sensor, SensorStatus.ACTIVE)
+                sensor["last_active"] = datetime.now(timezone.utc)
+                # Update battery voltage from reading
+                if result.get("reading") and result["reading"].get("battery_volts"):
+                    sensor["battery_volts"] = result["reading"]["battery_volts"]
             else:
-                # Real errors (cloud_error, data_error, etc.)
-                self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
-        
-        self._save_to_file()
+                error_type = result.get("error_type")
+                error_msg = result.get("error_message", "Unknown error")
+                
+                if error_type in ["connection_error", "timeout"]:
+                    # API not responding = INACTIVE
+                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                else:
+                    # Real errors (cloud_error, data_error, etc.)
+                    self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
+        except Exception as e:
+            logger.error(f"[{sensor.get('name', sensor_id)}] Error during poll: {e}", exc_info=True)
+            self._update_sensor_status(sensor, SensorStatus.ERROR, f"Poll error: {str(e)}", "poll_error")
+        finally:
+            self._save_to_file()
     
     
     async def _poll_voltage_meter(self, sensor_id: str):
         """Poll a Voltage Meter (runs every 60 seconds)."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
+            logger.warning(f"[POLL] Sensor {sensor_id} not found, skipping poll")
             return
         
-        result = await self.voltage_meter_service.fetch_and_push(
-            ip_address=sensor["ip_address"],
-            sensor_name=sensor["name"],
-            upload_token=sensor["upload_token"]
-        )
-        
-        if result["status"] == "success":
-            self._update_sensor_status(sensor, SensorStatus.ACTIVE)
-            sensor["last_active"] = datetime.now(timezone.utc)
-            # Update battery voltage and relay status from reading
-            reading = result.get("reading", {})
-            if reading.get("voltage_v") is not None:
-                sensor["battery_volts"] = reading["voltage_v"]
-            if reading.get("auto_mode") is not None:
-                sensor["auto_mode"] = reading["auto_mode"]
-            if reading.get("load_on") is not None:
-                sensor["load_on"] = reading["load_on"]
-            if reading.get("v_cutoff") is not None:
-                sensor["v_cutoff"] = reading["v_cutoff"]
-            if reading.get("v_reconnect") is not None:
-                sensor["v_reconnect"] = reading["v_reconnect"]
-            # Store CSV sample
-            if result.get("csv_sample"):
-                sensor["last_csv_sample"] = result["csv_sample"]
-        else:
-            error_type = result.get("error_type")
-            error_msg = result.get("error_message", "Unknown error")
+        try:
+            result = await self.voltage_meter_service.fetch_and_push(
+                ip_address=sensor["ip_address"],
+                sensor_name=sensor["name"],
+                upload_token=sensor["upload_token"]
+            )
             
-            if error_type in ["connection_error", "timeout"]:
-                # Not responding = INACTIVE
-                self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+            if result["status"] == "success":
+                self._update_sensor_status(sensor, SensorStatus.ACTIVE)
+                sensor["last_active"] = datetime.now(timezone.utc)
+                # Update battery voltage and relay status from reading
+                reading = result.get("reading", {})
+                if reading.get("voltage_v") is not None:
+                    sensor["battery_volts"] = reading["voltage_v"]
+                if reading.get("auto_mode") is not None:
+                    sensor["auto_mode"] = reading["auto_mode"]
+                if reading.get("load_on") is not None:
+                    sensor["load_on"] = reading["load_on"]
+                if reading.get("v_cutoff") is not None:
+                    sensor["v_cutoff"] = reading["v_cutoff"]
+                if reading.get("v_reconnect") is not None:
+                    sensor["v_reconnect"] = reading["v_reconnect"]
+                # Store CSV sample
+                if result.get("csv_sample"):
+                    sensor["last_csv_sample"] = result["csv_sample"]
             else:
-                # Real errors (cloud_error, etc.)
-                self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
-        
-        self._save_to_file()
+                error_type = result.get("error_type")
+                error_msg = result.get("error_message", "Unknown error")
+                
+                if error_type in ["connection_error", "timeout"]:
+                    # Not responding = INACTIVE
+                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                else:
+                    # Real errors (cloud_error, etc.)
+                    self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
+        except Exception as e:
+            logger.error(f"[{sensor.get('name', sensor_id)}] Error during poll: {e}", exc_info=True)
+            self._update_sensor_status(sensor, SensorStatus.ERROR, f"Poll error: {str(e)}", "poll_error")
+        finally:
+            self._save_to_file()
     
     
     # =========================================================================
@@ -1180,14 +1196,24 @@ class SensorManager:
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
     
     def set_power_mode(self, sensor_id: str, power_mode: str) -> Optional[SensorResponse]:
-        """Set the power mode for a Purple Air sensor (sync wrapper)."""
+        """
+        Set the power mode for a Purple Air sensor (sync wrapper - DEPRECATED).
+        
+        NOTE: This method creates a new event loop which is not recommended.
+        Use set_power_mode_async() instead, which is called directly by the router.
+        """
+        logger.warning("set_power_mode() sync wrapper called - use set_power_mode_async() instead")
         # Use asyncio to run the async version
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(self.set_power_mode_async(sensor_id, power_mode))
-        finally:
-            loop.close()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.set_power_mode_async(sensor_id, power_mode))
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"Error in sync set_power_mode wrapper: {e}", exc_info=True)
+            return None
     
     
     # =========================================================================
