@@ -45,8 +45,10 @@ if ($existingProcesses) {
 }
 
 # Start backend in a new process
+# Note: The backend script will start uvicorn and then monitor it
 $backendProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$backendScript`"" -WindowStyle Hidden -PassThru
-Log "Backend process started (PID: $($backendProcess.Id))"
+Log "Backend PowerShell script started (PID: $($backendProcess.Id))"
+$backendScriptPID = $backendProcess.Id
 
 # Wait for backend to be ready (increased timeout to 120 seconds)
 Log "Waiting for backend to start..."
@@ -144,8 +146,8 @@ while ($true) {
             
             # Restart backend
             $backendProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$backendScript`"" -WindowStyle Hidden -PassThru
-            Log "Backend restart initiated (PID: $($backendProcess.Id))"
-            $backendProcessId = $backendProcess.Id
+            Log "Backend restart initiated (PowerShell PID: $($backendProcess.Id))"
+            $backendScriptPID = $backendProcess.Id
             $consecutiveFailures = 0
             Start-Sleep -Seconds 15  # Give it time to start
         } elseif ($consecutiveFailures -ge 3) {
