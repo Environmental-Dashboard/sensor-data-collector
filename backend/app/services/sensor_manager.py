@@ -652,12 +652,13 @@ class SensorManager:
                 del sensor["error_start_time"]
             
             logger.info(f"[{sensor_name}] Recovered: {old_status} -> {new_status_str}")
-            self.email_service.send_sensor_recovery_alert(
-                sensor_id=sensor_id,
-                sensor_name=sensor_name,
-                sensor_type=sensor_type,
-                location=location
-            )
+            # Recovery email disabled
+            # self.email_service.send_sensor_recovery_alert(
+            #     sensor_id=sensor_id,
+            #     sensor_name=sensor_name,
+            #     sensor_type=sensor_type,
+            #     location=location
+            # )
     
     
     # =========================================================================
