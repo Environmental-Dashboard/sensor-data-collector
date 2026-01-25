@@ -58,17 +58,46 @@ Log "Starting uvicorn on port 8000..."
 $outputFile = "$scriptDir\uvicorn_output.log"
 $errorFile = "$scriptDir\uvicorn_error.log"
 
-# Start the process in the background
-$process = Start-Process -FilePath $pythonExe `
-    -ArgumentList "-m", $uvicornModule, "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" `
-    -WorkingDirectory $scriptDir `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $outputFile `
-    -RedirectStandardError $errorFile `
-    -PassThru `
-    -NoNewWindow
+# Start the process in the background using ProcessStartInfo for better control
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $pythonExe
+$psi.Arguments = "-m $uvicornModule app.main:app --host 0.0.0.0 --port 8000 --reload"
+$psi.WorkingDirectory = $scriptDir
+$psi.UseShellExecute = $false
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$psi.CreateNoWindow = $true
+$psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 
-if ($process) {
+$process = New-Object System.Diagnostics.Process
+$process.StartInfo = $psi
+
+# Set up output handlers
+$outputBuilder = New-Object System.Text.StringBuilder
+$errorBuilder = New-Object System.Text.StringBuilder
+
+$outputHandler = {
+    if (-not [string]::IsNullOrEmpty($EventArgs.Data)) {
+        $outputBuilder.AppendLine($EventArgs.Data) | Out-Null
+        $EventArgs.Data | Out-File -FilePath $outputFile -Append -Encoding utf8
+    }
+}
+
+$errorHandler = {
+    if (-not [string]::IsNullOrEmpty($EventArgs.Data)) {
+        $errorBuilder.AppendLine($EventArgs.Data) | Out-Null
+        $EventArgs.Data | Out-File -FilePath $errorFile -Append -Encoding utf8
+    }
+}
+
+$process.add_OutputDataReceived($outputHandler)
+$process.add_ErrorDataReceived($errorHandler)
+
+try {
+    $process.Start() | Out-Null
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
+    
     Log "Uvicorn process started (PID: $($process.Id))"
     
     # Monitor the process and log output
@@ -81,11 +110,22 @@ if ($process) {
         $waited++
         
         # Check if process is still running
-        if (-not (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {
-            Log "ERROR: Uvicorn process died immediately. Check $errorFile for errors."
+        if ($process.HasExited) {
+            $exitCode = $process.ExitCode
+            Log "ERROR: Uvicorn process died immediately (Exit Code: $exitCode). Check $errorFile for errors."
             if (Test-Path $errorFile) {
-                $errors = Get-Content $errorFile -Tail 10
-                $errors | ForEach-Object { Log "  $_" }
+                $errors = Get-Content $errorFile -Tail 20 -ErrorAction SilentlyContinue
+                if ($errors) {
+                    Log "Error output:"
+                    $errors | ForEach-Object { Log "  $_" }
+                }
+            }
+            if (Test-Path $outputFile) {
+                $output = Get-Content $outputFile -Tail 10 -ErrorAction SilentlyContinue
+                if ($output) {
+                    Log "Standard output:"
+                    $output | ForEach-Object { Log "  $_" }
+                }
             }
             exit 1
         }
@@ -114,7 +154,7 @@ if ($process) {
     if (-not $started) {
         Log "WARNING: Backend may not be fully started, but process is running (PID: $($process.Id))"
         if (Test-Path $errorFile) {
-            $errors = Get-Content $errorFile -Tail 5 -ErrorAction SilentlyContinue
+            $errors = Get-Content $errorFile -Tail 10 -ErrorAction SilentlyContinue
             if ($errors) {
                 Log "Recent errors:"
                 $errors | ForEach-Object { Log "  $_" }
@@ -126,14 +166,16 @@ if ($process) {
     while ($true) {
         Start-Sleep -Seconds 10
         
-        if (-not (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {
+        if ($process.HasExited) {
             $exitCode = $process.ExitCode
             Log "Uvicorn process exited (Exit Code: $exitCode)"
             
             if (Test-Path $errorFile) {
-                $errors = Get-Content $errorFile -Tail 20
-                Log "Last errors:"
-                $errors | ForEach-Object { Log "  $_" }
+                $errors = Get-Content $errorFile -Tail 20 -ErrorAction SilentlyContinue
+                if ($errors) {
+                    Log "Last errors:"
+                    $errors | ForEach-Object { Log "  $_" }
+                }
             }
             exit $exitCode
         }
@@ -149,7 +191,13 @@ if ($process) {
             }
         }
     }
-} else {
-    Log "ERROR: Failed to start uvicorn process"
+} catch {
+    Log "ERROR: Failed to start uvicorn process: $_"
+    if (Test-Path $errorFile) {
+        $errors = Get-Content $errorFile -Tail 10 -ErrorAction SilentlyContinue
+        if ($errors) {
+            $errors | ForEach-Object { Log "  $_" }
+        }
+    }
     exit 1
 }
