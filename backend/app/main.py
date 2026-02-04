@@ -10,8 +10,8 @@ Author: Frank Kusi Appiah
 
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
 from dotenv import load_dotenv
 
 from app.routers import sensors_router, set_sensor_manager
@@ -31,10 +31,15 @@ class Config:
     TEMPEST_API_TOKEN = os.getenv("TEMPEST_API_TOKEN", "61a83ac0-678f-4284-b9aa-e962cf6a7ede")
     
     # CORS - Allow the frontend to connect
+    # Add all known Vercel deployment URLs here
     CORS_ORIGINS = [
-        "https://ed-sensor-dashboard.vercel.app",   # Production frontend
-        "https://ed-sensors-dashboard.vercel.app",  # Alternate
-        "http://localhost:5173",                     # Local dev
+        "https://frontend-nu-nine-45.vercel.app",
+        "https://frontend-oo5y8j4zu-environment-dashboards-projects.vercel.app",
+        "https://frontend-2o2a130mj-environment-dashboards-projects.vercel.app",
+        "https://frontend-moh64c7s7-environment-dashboards-projects.vercel.app",
+        "https://ed-sensor-dashboard.vercel.app",
+        "https://ed-sensors-dashboard.vercel.app",
+        "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
@@ -86,13 +91,34 @@ app = FastAPI(
 )
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=Config.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Custom CORS middleware to handle all Vercel origins
+@app.middleware("http")
+async def cors_middleware(request: Request, call_next):
+    """Handle CORS for all Vercel origins and localhost."""
+    origin = request.headers.get("origin")
+    
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = Response(status_code=200)
+        if origin and (origin.endswith(".vercel.app") or origin in Config.CORS_ORIGINS):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Max-Age"] = "3600"
+        else:
+            # Still allow but log for debugging
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+    
+    # Handle actual request
+    response = await call_next(request)
+    if origin and (origin.endswith(".vercel.app") or origin in Config.CORS_ORIGINS):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 
 app.include_router(sensors_router)
