@@ -90,12 +90,34 @@ if (-not $backendReady) {
     Log "Will continue monitoring and retry..."
 }
 
-# Start tunnel
-Log "Starting Cloudflare tunnel..."
-$tunnelScript = Join-Path $scriptDir "start-tunnel.ps1"
-Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$tunnelScript`"" -WindowStyle Hidden
-
-Log "Both backend and tunnel started. Monitoring..."
+# Start tunnel (only if backend is ready)
+if ($backendReady) {
+    Log "Starting Cloudflare tunnel..."
+    $tunnelScript = Join-Path $scriptDir "start-tunnel.ps1"
+    $tunnelProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$tunnelScript`"" -WindowStyle Hidden -PassThru
+    Log "Tunnel script started (PID: $($tunnelProcess.Id))"
+    
+    # Wait a moment for tunnel to initialize
+    Start-Sleep -Seconds 5
+    
+    # Check if tunnel URL was captured
+    $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
+    if (Test-Path $tunnelUrlFile) {
+        $tunnelUrl = Get-Content $tunnelUrlFile -ErrorAction SilentlyContinue
+        if ($tunnelUrl) {
+            Log "Tunnel URL: $tunnelUrl"
+            Log "Frontend should connect via: https://ed-sensor-dashboard.vercel.app"
+        }
+    }
+    
+    Log "Both backend and tunnel started. Monitoring..."
+} else {
+    Log "WARNING: Backend not ready. Tunnel will start but may not connect properly."
+    Log "Starting tunnel anyway (it will wait for backend)..."
+    $tunnelScript = Join-Path $scriptDir "start-tunnel.ps1"
+    Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$tunnelScript`"" -WindowStyle Hidden
+    Log "Tunnel started. Will retry connection when backend is ready."
+}
 
 # Track backend process
 $backendProcessId = $null
@@ -189,6 +211,36 @@ while ($true) {
     $tunnelRunning = Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue
     if (-not $tunnelRunning) {
         Log "WARNING: Tunnel not running, restarting..."
-        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$tunnelScript`"" -WindowStyle Hidden
+        $tunnelProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$tunnelScript`"" -WindowStyle Hidden -PassThru
+        Log "Tunnel restart initiated (PID: $($tunnelProcess.Id))"
+        Start-Sleep -Seconds 5
+        
+        # Check for tunnel URL
+        $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
+        if (Test-Path $tunnelUrlFile) {
+            $tunnelUrl = (Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s',''
+            if ($tunnelUrl -and $tunnelUrl.StartsWith("https://")) {
+                Log "Tunnel URL: $tunnelUrl"
+                Log "IMPORTANT: If tunnel URL changed, update Vercel: cd frontend && npx vercel env rm VITE_API_URL production -y && echo `"$tunnelUrl`" | npx vercel env add VITE_API_URL production && npx vercel --prod"
+            }
+        }
+    } else {
+        # Periodically verify tunnel is working (every 5 minutes)
+        if ((Get-Date).Minute % 5 -eq 0 -and (Get-Date).Second -lt 30) {
+            $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
+            if (Test-Path $tunnelUrlFile) {
+                $tunnelUrl = (Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s',''
+                if ($tunnelUrl -and $tunnelUrl.StartsWith("https://")) {
+                    try {
+                        $tunnelHealth = Invoke-WebRequest -Uri "$tunnelUrl/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                        if ($tunnelHealth.StatusCode -eq 200) {
+                            Log "Tunnel health check: OK (Backend accessible via tunnel)"
+                        }
+                    } catch {
+                        Log "WARNING: Tunnel health check failed. Tunnel may be down."
+                    }
+                }
+            }
+        }
     }
 }
