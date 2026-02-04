@@ -1,0 +1,7 @@
+tunnel: sensor-backend
+credentials-file: C:\Users\ethan\.cloudflared\7fb37290-eaa7-4e8c-85c0-8eaedaf97607.json
+
+ingress:
+  - hostname: sensor-dashboard.environmentaldashboard.org
+    service: http://localhost:8000
+  - service: http_status:404
