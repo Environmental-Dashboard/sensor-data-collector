@@ -112,11 +112,6 @@ html.dark {
   box-sizing: border-box;
 }
 
-html, body {
-  height: 100%;
-  overflow-x: hidden;
-}
-
 body {
   font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-primary);
@@ -125,14 +120,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.2s ease, color 0.2s ease;
-  overflow-y: auto;
 }
 
 .app {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
 }
 
 .loading-screen {
@@ -318,37 +311,34 @@ body {
    ============================================ */
 .main {
   flex: 1;
-  padding: 40px 48px;
-  padding-bottom: 80px;
+  padding: 32px;
   background: var(--bg-primary);
   transition: background-color 0.2s ease;
-  overflow-y: auto;
 }
 
 .content-card {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  overflow: visible;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .content-header {
-  padding: 0;
-  padding-bottom: 32px;
-  margin-bottom: 32px;
+  padding: 28px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border-subtle);
-  background: transparent;
-  transition: border-color 0.2s ease;
+  background: var(--bg-secondary);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .content-header.purple,
 .content-header.cyan,
 .content-header.blue,
 .content-header.amber {
-  background: transparent;
+  background: var(--bg-secondary);
 }
 
 .content-header-left {
@@ -358,29 +348,30 @@ body {
 }
 
 .content-icon {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   background: var(--accent-dim);
-  border: none;
-  border-radius: var(--radius);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-primary);
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .content-header.purple .content-icon,
 .content-header.cyan .content-icon,
 .content-header.blue .content-icon,
 .content-header.amber .content-icon {
+  border-color: var(--border-default);
   color: var(--text-primary);
 }
 
 .content-header h2 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .content-header p {
@@ -390,9 +381,8 @@ body {
 }
 
 .content-body {
-  padding: 0;
-  min-height: 300px;
-  overflow-y: visible;
+  padding: 32px;
+  min-height: 400px;
 }
 
 /* ============================================
@@ -462,26 +452,24 @@ body {
    ============================================ */
 .sensor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
 }
 
 /* ============================================
    SENSOR CARD
    ============================================ */
 .sensor-card {
-  background: var(--bg-card);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   padding: 24px;
   transition: all 0.2s ease;
-  box-shadow: var(--shadow-sm);
 }
 
 .sensor-card:hover {
   border-color: var(--border-default);
-  box-shadow: var(--shadow);
-  transform: translateY(-2px);
+  background: var(--bg-hover);
 }
 
 .sensor-card.active {
@@ -573,25 +561,6 @@ body {
   color: var(--warning);
 }
 
-/* Power mode indicator */
-.meta-item.power-mode {
-  color: #818cf8;
-}
-
-.meta-item.power-mode svg {
-  color: #818cf8;
-}
-
-/* Linked sensor indicator */
-.meta-item.linked-sensor {
-  color: #22c55e;
-}
-
-.meta-item.linked-sensor svg {
-  color: #22c55e;
-}
-
-/* Error message (critical issue) */
 .sensor-error {
   font-size: 0.8125rem;
   padding: 12px 16px;
@@ -604,114 +573,6 @@ body {
 
 html:not(.dark) .sensor-error {
   border: 1px solid rgba(220, 38, 38, 0.2);
-}
-
-/* Warning message (battery low - expected state, not critical) */
-.sensor-warning {
-  font-size: 0.8125rem;
-  padding: 12px 16px;
-  background: rgba(251, 191, 36, 0.1);
-  border-radius: var(--radius-sm);
-  color: #f59e0b;
-  margin-bottom: 20px;
-  border: 1px solid rgba(251, 191, 36, 0.25);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-html:not(.dark) .sensor-warning {
-  background: rgba(245, 158, 11, 0.1);
-  color: #d97706;
-  border-color: rgba(217, 119, 6, 0.3);
-}
-
-/* Sleeping indicator (power saving mode) */
-.sensor-sleeping {
-  font-size: 0.8125rem;
-  padding: 12px 16px;
-  background: rgba(99, 102, 241, 0.1);
-  border-radius: var(--radius-sm);
-  color: #818cf8;
-  margin-bottom: 20px;
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-html:not(.dark) .sensor-sleeping {
-  background: rgba(79, 70, 229, 0.1);
-  color: #4f46e5;
-  border-color: rgba(79, 70, 229, 0.3);
-}
-
-/* Waking indicator (power saving mode) */
-.sensor-waking {
-  font-size: 0.8125rem;
-  padding: 12px 16px;
-  background: rgba(251, 191, 36, 0.1);
-  border-radius: var(--radius-sm);
-  color: #f59e0b;
-  margin-bottom: 20px;
-  border: 1px solid rgba(251, 191, 36, 0.2);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-html:not(.dark) .sensor-waking {
-  background: rgba(245, 158, 11, 0.1);
-  color: #d97706;
-  border-color: rgba(217, 119, 6, 0.3);
-}
-
-/* Cloud error (not sensor's fault - temporary issue) */
-.sensor-cloud-error {
-  font-size: 0.8125rem;
-  padding: 12px 16px;
-  background: rgba(99, 102, 241, 0.1);
-  border-radius: var(--radius-sm);
-  color: #818cf8;
-  margin-bottom: 20px;
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-html:not(.dark) .sensor-cloud-error {
-  background: rgba(79, 70, 229, 0.1);
-  color: #4f46e5;
-  border-color: rgba(79, 70, 229, 0.3);
-}
-
-/* Status badge variants */
-.sensor-status.offline {
-  background: rgba(156, 163, 175, 0.15);
-  color: #9ca3af;
-}
-
-.sensor-status.offline.battery-low {
-  background: rgba(251, 191, 36, 0.15);
-  color: #f59e0b;
-}
-
-.sensor-status.error.cloud-error {
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
-}
-
-/* Power Saving Mode: Sleeping */
-.sensor-status.sleeping {
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
-}
-
-/* Power Saving Mode: Waking */
-.sensor-status.waking {
-  background: rgba(251, 191, 36, 0.15);
-  color: #f59e0b;
 }
 
 .sensor-actions {
@@ -1049,336 +910,6 @@ html:not(.dark) .form-error {
 /* ============================================
    RESPONSIVE
    ============================================ */
-/* ============================================
-   RELAY CONTROL (Voltage Meters)
-   ============================================ */
-.relay-control {
-  margin-top: 16px;
-  padding: 16px;
-  background: var(--bg-hover);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-}
-
-.relay-control-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.relay-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.relay-buttons .btn {
-  flex: 1;
-}
-
-/* ============================================
-   SENSOR SETTINGS (Purple Air Power Mode)
-   ============================================ */
-.sensor-settings {
-  margin-top: 16px;
-  padding: 16px;
-  background: var(--bg-hover);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-}
-
-.settings-section {
-  margin-bottom: 16px;
-}
-
-.settings-section:last-child {
-  margin-bottom: 0;
-}
-
-.settings-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.settings-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.settings-buttons .btn {
-  flex: 1;
-}
-
-.frequency-buttons {
-  flex-wrap: wrap;
-}
-
-.frequency-buttons .btn {
-  flex: 0 0 auto;
-  min-width: 48px;
-}
-
-/* Small button variant */
-.btn-sm {
-  font-size: 0.75rem;
-  padding: 8px 12px;
-}
-
-/* ============================================
-   DROPDOWN MENU (Three-dot options)
-   ============================================ */
-.menu-container {
-  position: relative;
-}
-
-.menu-container {
-  position: relative;
-}
-
-.dropdown-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 8px;
-  min-width: 200px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  z-index: 100;
-  animation: dropdownSlide 0.2s ease;
-  overflow: hidden;
-  padding: 6px 0;
-}
-
-@keyframes dropdownSlide {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  font-family: inherit;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.15s ease;
-}
-
-.dropdown-item svg {
-  color: var(--text-muted);
-  transition: color 0.15s ease;
-}
-
-.dropdown-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.dropdown-item:hover svg {
-  color: var(--text-primary);
-}
-
-.dropdown-item.danger {
-  color: var(--error);
-}
-
-.dropdown-item.danger svg {
-  color: var(--error);
-}
-
-.dropdown-item.danger:hover {
-  background: var(--error-dim);
-}
-
-.dropdown-item.danger:hover {
-  background: var(--error-dim);
-}
-
-.dropdown-divider {
-  height: 1px;
-  background: var(--border-subtle);
-  margin: 8px 12px;
-}
-
-.dropdown-section-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  padding: 8px 16px 4px;
-  margin-top: 4px;
-}
-
-.dropdown-item.active {
-  background: var(--accent-dim);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.dropdown-item.active svg {
-  color: var(--success);
-}
-
-.dropdown-frequency-buttons {
-  display: flex;
-  gap: 4px;
-  padding: 8px 12px 12px;
-}
-
-.freq-btn {
-  flex: 1;
-  padding: 6px 8px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.freq-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-default);
-}
-
-.freq-btn.active {
-  background: var(--accent);
-  color: var(--text-inverse);
-  border-color: var(--accent);
-}
-
-/* Relay mode indicator */
-.meta-item.relay-mode {
-  font-weight: 500;
-}
-
-.meta-item.relay-on {
-  color: var(--success);
-}
-
-.meta-item.relay-off {
-  color: var(--text-muted);
-}
-
-.threshold-info {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-}
-
-/* Calibration Modal */
-.calibration-info {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  margin-bottom: 20px;
-}
-
-.calibration-step {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.calibration-step:not(:last-child) {
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.step-number {
-  width: 24px;
-  height: 24px;
-  background: var(--accent);
-  color: var(--text-inverse);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.current-reading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: var(--accent-dim);
-  border-radius: var(--radius-sm);
-  margin-bottom: 20px;
-  font-size: 0.875rem;
-}
-
-.current-reading strong {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 1rem;
-}
-
-/* ============================================
-   DATA PREVIEW (Last Sent Data)
-   ============================================ */
-.data-preview {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.75rem;
-  line-height: 1.6;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-secondary);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-/* Green tab color */
-.tab.active.green {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
-}
-
-.content-header.green {
-  background: var(--bg-secondary);
-}
-
-.content-header.green .content-icon {
-  border-color: var(--border-default);
-  color: var(--text-primary);
-}
-
-/* ============================================
-   RESPONSIVE
-   ============================================ */
 @media (max-width: 768px) {
   .header {
     padding: 14px 20px;
@@ -1406,30 +937,18 @@ html:not(.dark) .form-error {
   }
 
   .main {
-    padding: 24px 20px;
-    padding-bottom: 60px;
+    padding: 20px;
   }
 
   .content-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
-    padding: 0;
-    padding-bottom: 20px;
-    margin-bottom: 24px;
+    gap: 20px;
+    padding: 24px;
   }
 
   .content-header .btn {
     width: 100%;
-  }
-
-  .content-icon {
-    width: 44px;
-    height: 44px;
-  }
-
-  .content-header h2 {
-    font-size: 1.375rem;
   }
 
   .content-body {
@@ -1448,11 +967,6 @@ html:not(.dark) .form-error {
     flex: 1 1 auto;
   }
 
-  .relay-buttons,
-  .settings-buttons {
-    flex-wrap: wrap;
-  }
-
   .toast-container {
     left: 20px;
     right: 20px;
@@ -1462,312 +976,4 @@ html:not(.dark) .form-error {
   .toast {
     min-width: auto;
   }
-
-  .dropdown-menu {
-    position: fixed;
-    top: auto;
-    bottom: 20px;
-    right: 16px;
-    left: 16px;
-    min-width: auto;
-    border-radius: var(--radius);
-    padding: 8px 0;
-  }
-
-  .modal {
-    margin: 10px;
-    max-height: 90vh;
-    overflow-y: auto;
-  }
-
-  .modal-body {
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-}
-
-/* Extra small devices (phones, 480px and down) */
-@media (max-width: 480px) {
-  .header {
-    padding: 12px 16px;
-  }
-
-  .logo h1 {
-    font-size: 1rem;
-  }
-
-  .logo-icon {
-    width: 32px;
-    height: 32px;
-  }
-
-  .connection {
-    font-size: 0.75rem;
-    padding: 6px 10px;
-  }
-
-  .tab {
-    padding: 12px;
-    min-width: 50px;
-  }
-
-  .tab svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .main {
-    padding: 16px;
-  }
-
-  .content-header {
-    padding: 20px;
-  }
-
-  .content-header h2 {
-    font-size: 1.25rem;
-  }
-
-  .content-icon {
-    width: 44px;
-    height: 44px;
-  }
-
-  .content-body {
-    padding: 16px;
-  }
-
-  .sensor-card {
-    padding: 16px;
-  }
-
-  .sensor-name {
-    font-size: 1rem;
-  }
-
-  .sensor-actions {
-    gap: 8px;
-  }
-
-  .sensor-actions .btn {
-    padding: 8px 12px;
-    font-size: 0.75rem;
-  }
-
-  .btn-icon {
-    padding: 8px;
-  }
-
-  .settings-buttons .btn,
-  .relay-buttons .btn {
-    font-size: 0.7rem;
-    padding: 6px 10px;
-  }
-}
-
-/* ============================================
-   LAST DATA MODAL - TABLE DISPLAY
-   ============================================ */
-.modal-wide {
-  max-width: 600px;
-  width: 95%;
-}
-
-.last-data-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.sensor-badge {
-  background: var(--accent);
-  color: var(--text-inverse);
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.sensor-name-label {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.no-data {
-  text-align: center;
-  padding: 40px 20px;
-  color: var(--text-muted);
-}
-
-.no-data svg {
-  margin-bottom: 12px;
-  opacity: 0.5;
-}
-
-.no-data p {
-  margin: 0;
-}
-
-.data-table-container {
-  max-height: 400px;
-  overflow-y: auto;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.data-table thead {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.data-table th {
-  background: var(--bg-elevated);
-  padding: 10px 12px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text-secondary);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.data-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.data-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.data-table tbody tr:hover {
-  background: var(--bg-hover);
-}
-
-.field-col {
-  width: 45%;
-}
-
-.value-col {
-  width: 35%;
-}
-
-.unit-col {
-  width: 20%;
-}
-
-.field-name {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.field-value {
-  font-family: 'IBM Plex Mono', monospace;
-  font-weight: 500;
-  color: var(--accent);
-}
-
-.field-unit {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-/* Dark mode adjustments */
-.dark .sensor-badge {
-  background: var(--grey-200);
-  color: var(--grey-900);
-}
-
-.dark .data-table th {
-  background: var(--grey-800);
-}
-
-.dark .field-value {
-  color: var(--grey-100);
-}
-
-/* ============================================
-   LINK BATTERY MODAL
-   ============================================ */
-.voltage-meter-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.voltage-meter-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  width: 100%;
-  text-align: left;
-}
-
-.voltage-meter-option:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-default);
-}
-
-.voltage-meter-option:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.vm-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.vm-name {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.vm-details {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.vm-voltage {
-  font-family: 'IBM Plex Mono', monospace;
-  font-weight: 500;
-  color: var(--success);
-}
-
-.vm-status {
-  text-transform: capitalize;
-}
-
-.vm-status.active {
-  color: var(--success);
-}
-
-.vm-status.inactive {
-  color: var(--warning);
-}
-
-.vm-status.error {
-  color: var(--error);
 }
