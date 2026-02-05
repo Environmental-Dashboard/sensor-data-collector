@@ -260,12 +260,14 @@ async def add_voltage_meter(
     - upload_token: Your cloud token
     - linked_sensor_id: Optional - ID of the Purple Air sensor this controls
     - name: Optional - auto-generated if linked to a sensor
+    - ip_address: Optional for Option B (ESP32 POSTs to backend). If empty, device is not polled by IP.
     """
-    # Validate IP address
-    if not validate_ip_address(request.ip_address):
+    # Validate IP address only if provided (empty = Option B: device reports via POST only)
+    ip = (request.ip_address or "").strip()
+    if ip and not validate_ip_address(ip):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100"
+            detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100 or leave blank for POST-only."
         )
     
     # Validate linked sensor exists if provided
@@ -359,12 +361,14 @@ async def update_sensor(sensor_id: str, request: UpdateSensorRequest, manager = 
     if not sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
     
-    # Validate IP address if provided
-    if request.ip_address and not validate_ip_address(request.ip_address):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100"
-        )
+    # Validate IP address if provided (empty string = clear IP for POST-only)
+    if request.ip_address:
+        ip_stripped = request.ip_address.strip()
+        if ip_stripped and not validate_ip_address(ip_stripped):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100 or blank for POST-only."
+            )
     
     # Validate linked_sensor_id if provided
     if request.linked_sensor_id:
@@ -473,6 +477,47 @@ class RelayControlRequest(BaseModel):
     mode: str
 
 
+class RelayModeRequest(BaseModel):
+    """
+    Set desired relay mode (applied on next ESP32 wake).
+    Used for Option B when ESP32 POSTs to backend; dashboard stores desired mode here.
+    """
+    mode: str = Field(..., description="automatic | force_on | force_off")
+
+
+@router.post("/voltage-meter/{sensor_id}/relay-mode")
+async def set_voltage_meter_relay_mode(
+    sensor_id: str,
+    body: RelayModeRequest,
+    manager=Depends(get_sensor_manager),
+):
+    """
+    Set desired relay mode for the voltage meter. Applied on next ESP32 wake cycle.
+
+    Modes: automatic, force_on, force_off
+    """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Voltage meter not found")
+    if sensor.sensor_type != SensorType.VOLTAGE_METER:
+        raise HTTPException(status_code=400, detail="Relay mode only valid for voltage_meter sensors")
+
+    mode = body.mode.lower().strip()
+    if mode not in ("automatic", "force_on", "force_off"):
+        raise HTTPException(
+            status_code=400,
+            detail='mode must be one of: automatic, force_on, force_off',
+        )
+    manager.update_sensor_field(sensor_id, "relay_mode", mode)
+    return {
+        "status": "ok",
+        "relay_mode": mode,
+        "message": "Relay mode will be applied on next ESP32 wake cycle",
+    }
+
+
 @router.post("/voltage-meter/{sensor_id}/relay")
 async def control_voltage_meter_relay(
     sensor_id: str,
@@ -549,66 +594,62 @@ async def control_voltage_meter_relay(
 class ThresholdsRequest(BaseModel):
     """
     Request body for updating voltage meter thresholds.
-    
-    cutoff: Voltage below which relay turns OFF (e.g., 11.0V)
-    reconnect: Voltage above which relay turns ON again (e.g., 12.6V)
+    Stored and applied on next ESP32 wake (Option B). Also used for push when IP is set.
     """
-    cutoff: float
-    reconnect: float
+    v_cutoff: float = Field(..., description="Voltage below which relay turns OFF (10.0–14.0 V)")
+    v_reconnect: float = Field(..., description="Voltage above which relay turns ON (10.0–14.0 V, must be ≥ v_cutoff + 0.3)")
 
 
 @router.post("/voltage-meter/{sensor_id}/thresholds")
 async def set_voltage_meter_thresholds(
     sensor_id: str,
     body: ThresholdsRequest,
-    manager = Depends(get_sensor_manager),
+    manager=Depends(get_sensor_manager),
 ):
     """
     Set voltage thresholds for automatic relay control.
-    
-    When auto mode is enabled:
-    - Relay turns OFF when voltage drops below cutoff
-    - Relay turns ON when voltage rises above reconnect
+    Stored in backend; applied on next ESP32 wake cycle (Option B).
+    If the voltage meter has an IP and is reachable, thresholds are also pushed immediately.
     """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
     sensor = manager.get_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Voltage meter not found")
-    
     if sensor.sensor_type != SensorType.VOLTAGE_METER:
         raise HTTPException(status_code=400, detail="Thresholds only valid for voltage_meter sensors")
-    
+
+    v_cutoff = body.v_cutoff
+    v_reconnect = body.v_reconnect
+    if not (10.0 <= v_cutoff <= 14.0):
+        raise HTTPException(status_code=400, detail="v_cutoff must be between 10.0 and 14.0 V")
+    if not (10.0 <= v_reconnect <= 14.0):
+        raise HTTPException(status_code=400, detail="v_reconnect must be between 10.0 and 14.0 V")
+    if v_reconnect < v_cutoff + 0.3:
+        raise HTTPException(
+            status_code=400,
+            detail="v_reconnect must be at least 0.3 V higher than v_cutoff",
+        )
+
+    manager.update_sensor_field(sensor_id, "v_cutoff", v_cutoff)
+    manager.update_sensor_field(sensor_id, "v_reconnect", v_reconnect)
+
+    # Optional: push to ESP32 now if it has an IP and is reachable
     vm_ip = sensor.ip_address
-    if not vm_ip:
-        raise HTTPException(status_code=400, detail="Voltage meter has no IP address configured")
-    
-    vm_service = manager.voltage_meter_service
-    
-    try:
-        ok = await vm_service.set_thresholds(vm_ip, body.cutoff, body.reconnect)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error talking to voltage meter: {e}")
-    
-    if not ok:
-        raise HTTPException(status_code=502, detail="Voltage meter did not accept thresholds")
-    
-    # Wait a moment then fetch updated state
-    import asyncio
-    await asyncio.sleep(0.5)
-    
-    try:
-        status = await vm_service.get_status(vm_ip)
-        if status:
-            manager.update_sensor_field(sensor_id, "v_cutoff", status.get("v_cutoff"))
-            manager.update_sensor_field(sensor_id, "v_reconnect", status.get("v_reconnect"))
-    except Exception as e:
-        logger.error(f"Failed to update cached thresholds: {e}")
-    
+    if vm_ip and validate_ip_address(vm_ip):
+        vm_service = manager.voltage_meter_service
+        try:
+            ok = await vm_service.set_thresholds(vm_ip, lower=v_cutoff, upper=v_reconnect)
+            if ok:
+                logger.info(f"Thresholds pushed to {vm_ip}: cutoff={v_cutoff}, reconnect={v_reconnect}")
+        except Exception as e:
+            logger.warning(f"Could not push thresholds to {vm_ip}: {e} (will apply on next ESP32 wake)")
+
     return {
         "status": "ok",
-        "sensor_id": sensor_id,
-        "cutoff": body.cutoff,
-        "reconnect": body.reconnect,
-        "ip_address": vm_ip,
+        "v_cutoff": v_cutoff,
+        "v_reconnect": v_reconnect,
+        "message": "Thresholds will be applied on next ESP32 wake cycle",
     }
 
 
@@ -620,69 +661,67 @@ class CalibrateRequest(BaseModel):
 async def calibrate_voltage_meter(
     sensor_id: str,
     body: CalibrateRequest,
-    manager = Depends(get_sensor_manager),
+    manager=Depends(get_sensor_manager),
 ):
     """
-    Calibrate the voltage meter ADC.
-    
-    Provide the actual voltage reading from a multimeter. The ESP32 will
-    automatically calculate and save the calibration factor.
-    
-    This only needs to be done once per device.
+    Set pending calibration target voltage. Applied on next ESP32 wake cycle (Option B).
+    ESP32 will calibrate to this voltage and report back the new calibration_factor.
+    If the voltage meter has an IP and is reachable, calibration is also pushed immediately.
     """
     if not validate_sensor_id(sensor_id):
         raise HTTPException(status_code=400, detail="Invalid sensor ID format")
-    
-    # Validate target voltage
-    if not validate_voltage(body.target_voltage, min_v=8.0, max_v=16.0):
+    # Validate target voltage (spec: 10.0–15.0 V)
+    if not validate_voltage(body.target_voltage, min_v=10.0, max_v=15.0):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid target voltage: {body.target_voltage}V. Must be between 8.0V and 16.0V."
+            detail=f"Invalid target_voltage: {body.target_voltage}V. Must be between 10.0 and 15.0 V.",
         )
-    
     sensor = manager.get_sensor(sensor_id)
     if not sensor:
         raise HTTPException(status_code=404, detail="Voltage meter not found")
-    
     if sensor.sensor_type != SensorType.VOLTAGE_METER:
         raise HTTPException(status_code=400, detail="Calibration only valid for voltage_meter sensors")
-    
+
+    manager.update_sensor_field(sensor_id, "calibration_target", body.target_voltage)
+
+    # Optional: push to ESP32 now if it has an IP and is reachable
     vm_ip = sensor.ip_address
-    if not vm_ip:
-        raise HTTPException(status_code=400, detail="Voltage meter has no IP address configured")
-    
-    vm_service = manager.voltage_meter_service
-    
-    try:
-        ok = await vm_service.calibrate(vm_ip, body.target_voltage)
-        if not ok:
-            raise HTTPException(status_code=502, detail="Voltage meter did not accept calibration")
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
-    except Exception as e:
-        logger.error(f"Error calibrating voltage meter {sensor_id}: {e}", exc_info=True)
-        # Extract error message from exception
-        error_msg = str(e) if str(e) else "Unknown error"
-        raise HTTPException(status_code=500, detail=error_msg)
-    
-    # Wait a moment then fetch updated voltage reading
-    import asyncio
-    await asyncio.sleep(0.5)
-    
-    try:
-        status = await vm_service.get_status(vm_ip)
-        if status:
-            manager.update_sensor_field(sensor_id, "battery_volts", status.get("voltage_v"))
-            logger.info(f"Calibration applied: new reading = {status.get('voltage_v')}V")
-    except Exception as e:
-        logger.error(f"Failed to update cached voltage after calibration: {e}")
-    
+    if vm_ip and validate_ip_address(vm_ip):
+        vm_service = manager.voltage_meter_service
+        try:
+            ok = await vm_service.calibrate(vm_ip, body.target_voltage)
+            if ok:
+                logger.info(f"Calibration target pushed to {vm_ip}: {body.target_voltage}V")
+        except Exception as e:
+            logger.warning(f"Could not push calibration to {vm_ip}: {e} (will apply on next ESP32 wake)")
+
     return {
         "status": "ok",
-        "sensor_id": sensor_id,
-        "target_voltage": body.target_voltage,
-        "ip_address": vm_ip,
+        "calibration_target": body.target_voltage,
+        "message": "Calibration will be performed on next ESP32 wake cycle",
+    }
+
+
+@router.delete("/voltage-meter/{sensor_id}/calibrate")
+async def clear_voltage_meter_calibration(
+    sensor_id: str,
+    manager=Depends(get_sensor_manager),
+):
+    """
+    Clear pending calibration for the voltage meter.
+    Called automatically after ESP32 reports a new calibration_factor, or manually from dashboard.
+    """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Voltage meter not found")
+    if sensor.sensor_type != SensorType.VOLTAGE_METER:
+        raise HTTPException(status_code=400, detail="Calibration clear only valid for voltage_meter sensors")
+    manager.update_sensor_field(sensor_id, "calibration_target", None)
+    return {
+        "status": "ok",
+        "message": "Pending calibration cleared",
     }
 
 

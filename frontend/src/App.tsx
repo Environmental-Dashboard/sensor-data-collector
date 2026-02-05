@@ -164,9 +164,14 @@ export default function App() {
       if (result.status === 'success') {
         showToast('success', `✓ ${sensor.name} is active and working!`);
       } else if (result.status === 'info') {
-        // Tempest auto-push info message
+        // Info message (e.g. POST-only voltage meter, Tempest auto-push)
         const msg = typeof result.message === 'string' ? result.message : 'Sensor is working';
-        showToast('success', msg);
+        // For POST-only voltage meters, show a friendlier message
+        if (sensor.sensor_type === 'voltage_meter' && !sensor.ip_address) {
+          showToast('success', '✓ POST-only device. Use relay/threshold controls; changes apply on next check-in.');
+        } else {
+          showToast('success', msg);
+        }
       } else {
         // Handle error - make sure we get a string
         const errorMsg = typeof result.error_message === 'string' 
@@ -196,13 +201,14 @@ export default function App() {
     setActionLoading(null);
   };
 
-  // Relay control for voltage meters
+  // Relay control for voltage meters (command queued; applied on next ESP32 check-in)
   const handleRelayControl = async (sensor: Sensor, mode: 'auto' | 'on' | 'off') => {
     setActionLoading(sensor.id);
+    const apiMode = mode === 'auto' ? 'automatic' : mode === 'on' ? 'force_on' : 'force_off';
     try {
-      await api.setRelayMode(sensor.id, mode);
+      await api.setRelayMode(sensor.id, apiMode);
       const modeLabel = mode === 'auto' ? 'Automatic' : mode === 'on' ? 'Force ON' : 'Force OFF';
-      showToast('success', `Relay set to ${modeLabel}`);
+      showToast('success', `${modeLabel} — will apply on next device check-in`);
       fetchSensors();
     } catch (e: any) {
       const msg = typeof e.message === 'string' ? e.message : 'Failed to set relay mode';
@@ -643,6 +649,13 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
             <code>{sensor.ip_address}</code>
           </div>
         )}
+        {/* POST-only indicator for Voltage Meter with no IP */}
+        {sensor.sensor_type === 'voltage_meter' && !sensor.ip_address && (
+          <div className="meta-item">
+            <Globe size={14} />
+            <span>POST-only (no direct polling)</span>
+          </div>
+        )}
         {/* Battery voltage for Tempest and Voltage Meter */}
         {(sensor.sensor_type === 'tempest' || sensor.sensor_type === 'voltage_meter') && sensor.battery_volts !== null && (
           <div className={`meta-item ${sensor.sensor_type === 'tempest' && sensor.battery_volts < 2.5 ? 'battery-low' : ''}`}>
@@ -707,11 +720,13 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
           <Cloud size={14} /> {sensor.last_error}
         </div>
       )}
-      {/* Regular Errors - but NOT the "Relay OFF but voltage OK" message for power saving mode */}
+      {/* Regular Errors - but NOT the "Relay OFF but voltage OK" message for power saving mode 
+          and NOT the "Device not reachable" message for POST-only voltage meters */}
       {sensor.last_error && 
        sensor.status_reason !== 'battery_low' && 
        sensor.status_reason !== 'cloud_error' && 
-       !(sensor.status === 'sleeping' && sensor.last_error.includes('Relay OFF')) && (
+       !(sensor.status === 'sleeping' && sensor.last_error.includes('Relay OFF')) && 
+       !(sensor.sensor_type === 'voltage_meter' && !sensor.ip_address && sensor.last_error.includes('Device not reachable')) && (
         <div className="sensor-error">{sensor.last_error}</div>
       )}
 
@@ -949,19 +964,19 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
               </div>
             )}
 
-            {/* Voltage Meter: IP Address */}
+            {/* Voltage Meter: IP Address (optional for POST-only) */}
             {type === 'voltage_meter' && (
               <div className="form-group">
-                <label className="form-label">IP Address</label>
+                <label className="form-label">IP Address (optional)</label>
                 <input
                   type="text"
                   className="form-input mono"
-                  placeholder="192.168.1.100"
+                  placeholder="e.g. 192.168.1.100 or leave blank for POST-only"
                   value={ip}
                   onChange={e => setIp(e.target.value)}
                   disabled={loading}
                 />
-                <p className="form-hint">The ESP32's IP address on your network</p>
+                <p className="form-hint">Leave blank if the device reports via POST. Otherwise the ESP32&apos;s IP for direct polling.</p>
               </div>
             )}
 
@@ -1069,7 +1084,11 @@ function EditSensorModal({ sensor, onClose, onSave, loading }: EditSensorModalPr
     const updates: { name?: string; location?: string; ip_address?: string } = {};
     if (name !== sensor.name) updates.name = name;
     if (location !== sensor.location) updates.location = location;
-    if (ipAddress !== (sensor.ip_address || '')) updates.ip_address = ipAddress;
+    // Allow clearing IP by sending empty string (for POST-only voltage meters)
+    const trimmedIp = ipAddress.trim();
+    if (trimmedIp !== (sensor.ip_address || '').trim()) {
+      updates.ip_address = trimmedIp || '';  // Empty string clears IP
+    }
     onSave(updates);
   };
 
@@ -1102,16 +1121,26 @@ function EditSensorModal({ sensor, onClose, onSave, loading }: EditSensorModalPr
                 disabled={loading}
               />
             </div>
-            {sensor.ip_address && (
+            {/* Always show IP for sensors that can have one (Purple Air, Voltage Meter, Tempest) */}
+            {(sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'voltage_meter' || sensor.sensor_type === 'tempest') && (
               <div className="form-group">
-                <label className="form-label">IP Address</label>
+                <label className="form-label">
+                  IP Address
+                  {sensor.sensor_type === 'voltage_meter' && <span className="form-label-hint"> (optional)</span>}
+                </label>
                 <input
                   type="text"
                   className="form-input mono"
+                  placeholder={sensor.sensor_type === 'voltage_meter' ? 'Leave blank for POST-only' : ''}
                   value={ipAddress}
                   onChange={e => setIpAddress(e.target.value)}
                   disabled={loading}
                 />
+                {sensor.sensor_type === 'voltage_meter' && (
+                  <p className="form-hint">
+                    {ipAddress.trim() ? 'Device will be polled by IP. Clear to use POST-only.' : 'POST-only: device reports via wake-POST cycles.'}
+                  </p>
+                )}
               </div>
             )}
           </div>

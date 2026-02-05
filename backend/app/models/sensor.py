@@ -318,6 +318,9 @@ class SensorResponse(BaseModel):
     load_on: Optional[bool] = Field(None, description="Relay/load state (Voltage Meter)")
     v_cutoff: Optional[float] = Field(None, description="Cutoff voltage threshold (Voltage Meter)")
     v_reconnect: Optional[float] = Field(None, description="Reconnect voltage threshold (Voltage Meter)")
+    relay_mode: Optional[str] = Field(None, description="Desired relay mode: automatic | force_on | force_off (Voltage Meter)")
+    calibration_target: Optional[float] = Field(None, description="Pending calibration target voltage; null when none (Voltage Meter)")
+    calibration_factor: Optional[float] = Field(None, description="Current calibration factor from ESP32 (read-only) (Voltage Meter)")
 
 
 class SensorListResponse(BaseModel):

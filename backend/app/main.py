@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from dotenv import load_dotenv
 
-from app.routers import sensors_router, set_sensor_manager
+from app.routers import sensors_router, esp32_router, set_sensor_manager
 from app.services import PurpleAirService, TempestService, VoltageMeterService, SensorManager
 
 
@@ -122,6 +122,7 @@ async def cors_middleware(request: Request, call_next):
 
 
 app.include_router(sensors_router)
+app.include_router(esp32_router)
 
 
 @app.get("/")
