@@ -71,9 +71,9 @@ export const setPowerMode = (id: string, mode: 'normal' | 'power_saving') =>
 export const setPollingFrequency = (id: string, minutes: number) =>
   api<any>(`/api/sensors/${id}/frequency`, { method: 'POST', body: JSON.stringify({ minutes }) });
 
-// Voltage Meter relay control
-export const setRelayMode = (voltageMeter: string, mode: 'auto' | 'on' | 'off') =>
-  api<any>(`/api/sensors/voltage-meter/${voltageMeter}/relay`, { method: 'POST', body: JSON.stringify({ mode }) });
+// Voltage Meter relay control (stores command; applied on next ESP32 wake)
+export const setRelayMode = (voltageMeterId: string, mode: 'automatic' | 'force_on' | 'force_off') =>
+  api<any>(`/api/sensors/voltage-meter/${voltageMeterId}/relay-mode`, { method: 'POST', body: JSON.stringify({ mode }) });
 
 // Get last sent data for a sensor
 export const getLastSentData = (id: string) =>
@@ -83,9 +83,9 @@ export const getLastSentData = (id: string) =>
 export const updateSensor = (id: string, data: { name?: string; location?: string; ip_address?: string; linked_sensor_id?: string }) =>
   api<Sensor>(`/api/sensors/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 
-// Set voltage meter thresholds
-export const setThresholds = (id: string, cutoff: number, reconnect: number) =>
-  api<any>(`/api/sensors/voltage-meter/${id}/thresholds`, { method: 'POST', body: JSON.stringify({ cutoff, reconnect }) });
+// Set voltage meter thresholds (v_cutoff, v_reconnect; applied on next ESP32 wake)
+export const setThresholds = (id: string, v_cutoff: number, v_reconnect: number) =>
+  api<any>(`/api/sensors/voltage-meter/${id}/thresholds`, { method: 'POST', body: JSON.stringify({ v_cutoff, v_reconnect }) });
 
 // Calibrate voltage meter ADC
 export const calibrateVoltageMeter = (id: string, targetVoltage: number) =>

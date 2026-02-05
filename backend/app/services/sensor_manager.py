@@ -148,6 +148,14 @@ class SensorManager:
                     if sensor.get("created_at"):
                         sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
                     
+                    # Migration: voltage meter two-way fields (apply on next wake)
+                    if sensor.get("sensor_type") == SensorType.VOLTAGE_METER:
+                        sensor.setdefault("relay_mode", "automatic")
+                        sensor.setdefault("v_cutoff", 12.0)
+                        sensor.setdefault("v_reconnect", 12.6)
+                        sensor.setdefault("calibration_target", None)
+                        sensor.setdefault("calibration_factor", 1.0)
+                    
                     self._sensors[sensor_id] = sensor
                 except (ValueError, KeyError, TypeError) as e:
                     logger.error(f"Error loading sensor {sensor_id}: {e}, skipping")
@@ -295,12 +303,13 @@ class SensorManager:
         if not name:
             name = f"Voltage Meter {sensor_id[:8]}"
         
+        ip_address = (request.ip_address or "").strip() or None
         sensor_data = {
             "id": sensor_id,
             "sensor_type": SensorType.VOLTAGE_METER,
             "name": name,
             "location": request.location,
-            "ip_address": request.ip_address,
+            "ip_address": ip_address,
             "device_id": None,
             "upload_token": request.upload_token,
             "status": SensorStatus.INACTIVE,
@@ -311,6 +320,15 @@ class SensorManager:
             "linked_sensor_id": request.linked_sensor_id,
             "linked_sensor_name": linked_sensor_name,
             "battery_volts": None,
+            # Two-way ESP32: desired state (applied on next wake)
+            "relay_mode": "automatic",
+            "v_cutoff": 12.0,
+            "v_reconnect": 12.6,
+            "calibration_target": None,
+            "calibration_factor": 1.0,
+            # Last known state (updated by ESP32 POST)
+            "auto_mode": None,
+            "load_on": None,
         }
         
         self._sensors[sensor_id] = sensor_data
@@ -377,6 +395,17 @@ class SensorManager:
         if sensor_data:
             return SensorResponse(**{k: v for k, v in sensor_data.items() if k != "upload_token"})
         return None
+
+    def get_sensor_upload_token(self, sensor_id: str) -> Optional[str]:
+        """Return the upload_token for a sensor (for auth checks). Returns None if not found."""
+        sensor = self._sensors.get(sensor_id)
+        if not sensor:
+            return None
+        return sensor.get("upload_token")
+
+    def get_sensor_raw(self, sensor_id: str) -> Optional[dict]:
+        """Return the raw sensor dict (for reading relay_mode, calibration_target, etc.). Returns None if not found."""
+        return self._sensors.get(sensor_id)
     
     
     def update_sensor_field(self, sensor_id: str, field: str, value) -> bool:
@@ -505,7 +534,11 @@ class SensorManager:
         allowed_fields = {"name", "location", "ip_address", "device_id", "upload_token", "power_mode"}
         for key, value in updates.items():
             if value is not None and key in allowed_fields:
-                sensor[key] = value
+                # Normalize empty IP to None for POST-only voltage meters
+                if key == "ip_address" and isinstance(value, str) and not value.strip():
+                    sensor[key] = None
+                else:
+                    sensor[key] = value
         
         self._save_to_file()
         
@@ -1072,12 +1105,19 @@ class SensorManager:
     
     
     async def _poll_voltage_meter(self, sensor_id: str):
-        """Poll a Voltage Meter (runs every 60 seconds)."""
+        """Poll a Voltage Meter (runs every 60 seconds). Skip if no IP (Option B: device POSTs only)."""
         sensor = self._sensors.get(sensor_id)
         if not sensor:
             logger.warning(f"[POLL] Sensor {sensor_id} not found, skipping poll")
             return
-        
+        ip = sensor.get("ip_address") or ""
+        if not (isinstance(ip, str) and ip.strip()):
+            # No IP = Option B: device reports via POST; don't poll, clear connection error
+            sensor["last_error"] = None
+            sensor["status"] = SensorStatus.INACTIVE
+            sensor["status_reason"] = None
+            self._save_to_file()
+            return
         try:
             result = await self.voltage_meter_service.fetch_and_push(
                 ip_address=sensor["ip_address"],
@@ -1106,12 +1146,14 @@ class SensorManager:
             else:
                 error_type = result.get("error_type")
                 error_msg = result.get("error_message", "Unknown error")
-                
                 if error_type in ["connection_error", "timeout"]:
-                    # Not responding = INACTIVE
-                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
+                    # Voltage meter unreachable: use softer message (Option B devices report via POST)
+                    soft_msg = (
+                        "Device not reachable at this IP. "
+                        "If it reports via POST, relay/threshold commands will apply on next check-in."
+                    )
+                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, soft_msg, error_type)
                 else:
-                    # Real errors (cloud_error, etc.)
                     self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         except Exception as e:
             logger.error(f"[{sensor.get('name', sensor_id)}] Error during poll: {e}", exc_info=True)
@@ -1147,8 +1189,14 @@ class SensorManager:
                 upload_token=sensor["upload_token"]
             )
         elif sensor["sensor_type"] == SensorType.VOLTAGE_METER:
+            vm_ip = (sensor.get("ip_address") or "").strip()
+            if not vm_ip:
+                return {
+                    "status": "info",
+                    "message": "This device reports via POST (Option B). No direct connection; use dashboard to queue commands.",
+                }
             result = await self.voltage_meter_service.fetch_and_push(
-                ip_address=sensor["ip_address"],
+                ip_address=vm_ip,
                 sensor_name=sensor["name"],
                 upload_token=sensor["upload_token"]
             )
