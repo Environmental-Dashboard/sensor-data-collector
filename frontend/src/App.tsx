@@ -964,7 +964,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
               </div>
             )}
 
-            {/* Voltage Meter: IP Address (optional for POST-only / Option B) */}
+            {/* Voltage Meter: IP Address (optional for POST-only) */}
             {type === 'voltage_meter' && (
               <div className="form-group">
                 <label className="form-label">IP Address (optional)</label>
@@ -976,7 +976,7 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
                   onChange={e => setIp(e.target.value)}
                   disabled={loading}
                 />
-                <p className="form-hint">Leave blank if the device reports via POST (Option B). Otherwise the ESP32&apos;s IP for direct polling.</p>
+                <p className="form-hint">Leave blank if the device reports via POST. Otherwise the ESP32&apos;s IP for direct polling.</p>
               </div>
             )}
 
@@ -1131,14 +1131,14 @@ function EditSensorModal({ sensor, onClose, onSave, loading }: EditSensorModalPr
                 <input
                   type="text"
                   className="form-input mono"
-                  placeholder={sensor.sensor_type === 'voltage_meter' ? 'Leave blank for POST-only (Option B)' : ''}
+                  placeholder={sensor.sensor_type === 'voltage_meter' ? 'Leave blank for POST-only' : ''}
                   value={ipAddress}
                   onChange={e => setIpAddress(e.target.value)}
                   disabled={loading}
                 />
                 {sensor.sensor_type === 'voltage_meter' && (
                   <p className="form-hint">
-                    {ipAddress.trim() ? 'Device will be polled by IP. Clear to use POST-only.' : 'POST-only: device reports via wake-POST cycles (Option B).'}
+                    {ipAddress.trim() ? 'Device will be polled by IP. Clear to use POST-only.' : 'POST-only: device reports via wake-POST cycles.'}
                   </p>
                 )}
               </div>
