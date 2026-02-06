@@ -1,0 +1,185 @@
+================================================================================
+DEPLOYMENT SUMMARY: Sleep Duration Control Feature
+================================================================================
+
+✅ COMPLETED TASKS:
+
+1. ✅ Backend Implementation
+   - Added sleep_interval_minutes field to voltage meter model
+   - Created POST /api/sensors/voltage-meter/{id}/sleep-interval endpoint
+   - Updated ESP32 POST response to include sleep_interval_minutes in commands
+   - Added automatic migration for existing voltage meters (default: 15 min)
+   - NO LINTING ERRORS
+
+2. ✅ Frontend Implementation
+   - Added "Set Sleep Duration" menu item with moon icon
+   - Created SleepIntervalModal with:
+     * Custom input field (1-1440 minutes)
+     * Quick-select buttons: 5min, 15min, 30min, 1h, 2h, 6h
+     * Current interval display
+   - Added setSleepInterval() API function
+   - NO LINTING ERRORS
+
+3. ✅ ESP32 Firmware Update (v2.1)
+   - Added sleep_interval_minutes command processing
+   - Validates range: 1-1440 minutes
+   - Saves to NVS (persistent across deep sleep & power cycles)
+   - Default changed from 1 min to 15 min
+   - File created: ESP32_Battery_Monitor_v2.1.ino
+
+4. ✅ Git Repository
+   - Branch: optimize-sleep-cycle
+   - Commits:
+     * 50ba264 - Add remote sleep duration control for ESP32 voltage meters
+     * 59f9523 - Add deployment instructions for sleep duration control feature
+   - Pushed to remote: ✅
+   - Files changed: 8 files, 547+ lines added
+
+5. ✅ Documentation
+   - Created comprehensive deployment guide: DEPLOYMENT_SLEEP_DURATION.md
+   - Includes:
+     * Backend deployment steps (systemd/Windows/manual)
+     * Frontend deployment (Vercel auto/manual)
+     * ESP32 firmware upload instructions
+     * Testing procedures (6 test cases)
+     * Troubleshooting guide
+     * Rollback plan
+     * Success criteria checklist
+
+================================================================================
+NEXT STEPS FOR DEPLOYMENT:
+================================================================================
+
+STEP 1: Deploy Backend to Production
+   → SSH to sensor-dashboard.environmentaldashboard.org
+   → git pull origin optimize-sleep-cycle
+   → Restart backend service
+
+STEP 2: Deploy Frontend to Vercel
+   → Option A: Auto-deploy (merge to main, Vercel auto-builds)
+   → Option B: Manual (npm run build && vercel --prod)
+
+STEP 3: Upload ESP32 Firmware
+   → Open ESP32_Battery_Monitor_v2.1.ino in Arduino IDE
+   → Update WiFi credentials (WIFI_SSID, WIFI_PASS)
+   → Verify API_ENDPOINT, SENSOR_ID, UPLOAD_TOKEN
+   → Connect ESP32 via USB
+   → Upload firmware
+   → Monitor Serial output (115200 baud)
+
+STEP 4: Test Feature
+   → Dashboard → Voltage Meter → ⋮ → "Set Sleep Duration"
+   → Set to 5 minutes (for quick testing)
+   → Wait for ESP32 next wake cycle
+   → Verify Serial Monitor shows: "Sleep interval: 15 -> 5 minutes"
+   → Confirm ESP32 wakes every 5 minutes instead of 15
+
+================================================================================
+FILES TO REVIEW:
+================================================================================
+
+📄 DEPLOYMENT_SLEEP_DURATION.md
+   → Complete deployment guide (387 lines)
+   → Read this first for detailed instructions
+
+📄 ESP32_Battery_Monitor_v2.1.ino
+   → Updated ESP32 firmware (located in project root)
+   → Ready to upload to ESP32 devices
+
+📄 Modified Backend Files (7 files):
+   - backend/app/models/sensor.py
+   - backend/app/routers/esp32.py
+   - backend/app/routers/sensors.py
+   - backend/app/services/sensor_manager.py
+   - frontend/src/App.tsx
+   - frontend/src/api.ts
+   - frontend/src/types.ts
+
+================================================================================
+VERIFICATION CHECKLIST:
+================================================================================
+
+Backend:
+  ☐ Backend service restarted on production server
+  ☐ Endpoint returns 200: POST /api/sensors/voltage-meter/{id}/sleep-interval
+  ☐ ESP32 POST response includes sleep_interval_minutes field
+
+Frontend:
+  ☐ Deployed to Vercel (check deployment status)
+  ☐ "Set Sleep Duration" menu item visible on voltage meters
+  ☐ Modal opens with input and quick-select buttons
+  ☐ Success toast appears after setting duration
+
+ESP32:
+  ☐ Firmware v2.1 uploaded successfully
+  ☐ Serial Monitor shows WiFi connection
+  ☐ HTTP POST returns 200 OK
+  ☐ "Processing commands" shows sleep interval change
+  ☐ ESP32 wakes at new interval
+
+Integration:
+  ☐ Dashboard timestamp updates at new interval
+  ☐ Multiple interval changes work (5min → 30min → 1h)
+  ☐ Settings persist after ESP32 power cycle
+  ☐ No errors in backend logs
+
+================================================================================
+TROUBLESHOOTING QUICK REFERENCE:
+================================================================================
+
+Problem: Modal doesn't appear
+Fix: Hard refresh browser (Ctrl+Shift+R)
+
+Problem: ESP32 not receiving new interval
+Fix: Check backend logs, verify WiFi connection, inspect POST response
+
+Problem: ESP32 still using old interval
+Fix: Wait for current sleep cycle to complete (change applies on next wake)
+
+Problem: Backend 404 on sleep-interval endpoint
+Fix: git pull origin optimize-sleep-cycle && restart backend
+
+================================================================================
+POWER CONSUMPTION REFERENCE:
+================================================================================
+
+With 15-minute sleep interval (default):
+- Awake: ~15 seconds @ 160mA = 0.67 mAh/cycle
+- Asleep: ~15 minutes @ 10µA = 0.0025 mAh/cycle
+- Total: ~64 mAh/day
+- Battery life (3000mAh): ~47 days
+
+With 1-hour sleep interval:
+- Total: ~16 mAh/day
+- Battery life (3000mAh): ~188 days (6+ months)
+
+User can now optimize based on monitoring needs vs battery life!
+
+================================================================================
+REPOSITORY STATUS:
+================================================================================
+
+Branch: optimize-sleep-cycle
+Latest Commit: 59f9523bc2c6b75f36747fc8cd3f7c5085a343e2
+Status: Pushed to GitHub ✅
+Ready to merge to main: ✅ (after testing)
+
+Commands:
+  git checkout optimize-sleep-cycle
+  git pull
+  
+To merge to main:
+  git checkout main
+  git merge optimize-sleep-cycle
+  git push origin main
+
+================================================================================
+DEPLOYMENT TIMESTAMP:
+================================================================================
+
+Prepared: February 6, 2026 04:21 AM EST
+By: Menard Simoya
+Feature: Remote Sleep Duration Control for ESP32 Voltage Meters
+Version: Backend/Frontend (same), ESP32 Firmware v2.1
+
+================================================================================
