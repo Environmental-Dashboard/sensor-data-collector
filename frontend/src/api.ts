@@ -90,3 +90,7 @@ export const setThresholds = (id: string, v_cutoff: number, v_reconnect: number)
 // Calibrate voltage meter ADC
 export const calibrateVoltageMeter = (id: string, targetVoltage: number) =>
   api<any>(`/api/sensors/voltage-meter/${id}/calibrate`, { method: 'POST', body: JSON.stringify({ target_voltage: targetVoltage }) });
+
+// Set voltage meter sleep interval
+export const setSleepInterval = (id: string, sleepIntervalMinutes: number) =>
+  api<any>(`/api/sensors/voltage-meter/${id}/sleep-interval`, { method: 'POST', body: JSON.stringify({ sleep_interval_minutes: sleepIntervalMinutes }) });

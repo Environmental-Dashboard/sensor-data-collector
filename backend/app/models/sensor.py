@@ -321,6 +321,7 @@ class SensorResponse(BaseModel):
     relay_mode: Optional[str] = Field(None, description="Desired relay mode: automatic | force_on | force_off (Voltage Meter)")
     calibration_target: Optional[float] = Field(None, description="Pending calibration target voltage; null when none (Voltage Meter)")
     calibration_factor: Optional[float] = Field(None, description="Current calibration factor from ESP32 (read-only) (Voltage Meter)")
+    sleep_interval_minutes: Optional[int] = Field(None, description="Deep sleep duration in minutes between wake cycles (Voltage Meter)")
 
 
 class SensorListResponse(BaseModel):

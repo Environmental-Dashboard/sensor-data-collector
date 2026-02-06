@@ -153,6 +153,7 @@ async def esp32_report_voltage(
     v_cutoff = sensor_after.v_cutoff if sensor_after.v_cutoff is not None else 12.0
     v_reconnect = sensor_after.v_reconnect if sensor_after.v_reconnect is not None else 12.6
     calibration_target = getattr(sensor_after, "calibration_target", None)
+    sleep_interval_minutes = getattr(sensor_after, "sleep_interval_minutes", None) or 15
 
     logger.info(
         f"[ESP32] {sensor.name} voltage={body.voltage_v:.2f}V relay={'ON' if body.load_on else 'OFF'} -> cloud OK"
@@ -169,5 +170,6 @@ async def esp32_report_voltage(
             "v_cutoff": v_cutoff,
             "v_reconnect": v_reconnect,
             "calibration_target": calibration_target,
+            "sleep_interval_minutes": sleep_interval_minutes,
         },
     }
