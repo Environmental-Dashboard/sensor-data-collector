@@ -75,13 +75,27 @@ This deployment adds remote sleep duration control for ESP32 voltage meters, all
    Should return sensor list without errors.
 
 7. **Test the new endpoint**:
+   
+   First, get a valid sensor ID from your dashboard or via API:
+   ```bash
+   curl http://localhost:8000/api/sensors
+   ```
+   
+   Then test the sleep interval endpoint (replace `{SENSOR_ID}` with your voltage meter's UUID):
    ```bash
    curl -X POST http://localhost:8000/api/sensors/voltage-meter/{SENSOR_ID}/sleep-interval \
      -H "Content-Type: application/json" \
-     -H "Authorization: Bearer YOUR_JWT_TOKEN" \
      -d '{"sleep_interval_minutes": 15}'
    ```
-   Should return: `{"status": "ok", "sleep_interval_minutes": 15, ...}`
+   
+   Expected response:
+   ```json
+   {
+     "status": "ok",
+     "sleep_interval_minutes": 15,
+     "message": "Sleep interval set to 15 minutes. Will apply on next ESP32 wake cycle."
+   }
+   ```
 
 ---
 
