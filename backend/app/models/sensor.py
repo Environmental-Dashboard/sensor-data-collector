@@ -162,9 +162,13 @@ class AddTempestSensorRequest(BaseModel):
         device_id: The Tempest device ID (e.g., "205498")
                    Find this in the WeatherFlow Tempest app under station settings.
         
+        name: Friendly name for the station.
+        
         location: Where is it physically located?
         
         upload_token: Your upload token for oberlin.communityhub.cloud
+        
+        ip_address: Optional; Tempest uses WeatherFlow cloud, not a local IP.
     """
     device_id: str = Field(
         ..., 
@@ -181,6 +185,16 @@ class AddTempestSensorRequest(BaseModel):
     upload_token: str = Field(
         ..., 
         description="Your upload token for oberlin.communityhub.cloud"
+    )
+    name: str = Field(
+        ...,
+        description="Friendly name for the station",
+        min_length=1,
+        max_length=200,
+    )
+    ip_address: Optional[str] = Field(
+        None,
+        description="Optional; Tempest uses WeatherFlow cloud API, not a local IP",
     )
 
 

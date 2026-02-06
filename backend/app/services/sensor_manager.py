@@ -372,15 +372,18 @@ class SensorManager:
         self._sensors[sensor_id] = sensor_data
         self._save_to_file()  # Persist to disk
         
-        # Send new sensor notification email
-        self.email_service.send_new_sensor_notification(
-            sensor_id=sensor_id,
-            sensor_name=request.name,
-            sensor_type="tempest",
-            location=request.location,
-            ip_address=request.ip_address,
-            upload_token=request.upload_token
-        )
+        # Send new sensor notification email (non-blocking; don't fail add if email fails)
+        try:
+            self.email_service.send_new_sensor_notification(
+                sensor_id=sensor_id,
+                sensor_name=request.name,
+                sensor_type="tempest",
+                location=request.location,
+                ip_address=request.ip_address,
+                upload_token=request.upload_token
+            )
+        except Exception as e:
+            logger.warning(f"New sensor notification email failed (sensor still added): {e}")
         
         return SensorResponse(**{k: v for k, v in sensor_data.items() if k != "upload_token"})
     
