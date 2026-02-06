@@ -88,6 +88,7 @@ export default function App() {
   const [editModal, setEditModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
   const [thresholdsModal, setThresholdsModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
   const [calibrateModal, setCalibrateModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
+  const [sleepIntervalModal, setSleepIntervalModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
   const [linkBatteryModal, setLinkBatteryModal] = useState<{ open: boolean; sensor: Sensor | null }>({ open: false, sensor: null });
 
   // Toast helpers
@@ -296,6 +297,26 @@ export default function App() {
     setActionLoading(null);
   };
 
+  // Open sleep interval modal
+  const handleSetSleepInterval = (sensor: Sensor) => {
+    setSleepIntervalModal({ open: true, sensor });
+  };
+
+  // Save sleep interval
+  const handleSaveSleepInterval = async (sensor: Sensor, sleepIntervalMinutes: number) => {
+    setActionLoading(sensor.id);
+    try {
+      await api.setSleepInterval(sensor.id, sleepIntervalMinutes);
+      showToast('success', `Sleep interval set to ${sleepIntervalMinutes} minutes — will apply on next device check-in`);
+      setSleepIntervalModal({ open: false, sensor: null });
+      fetchSensors();
+    } catch (e: any) {
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to set sleep interval';
+      showToast('error', msg);
+    }
+    setActionLoading(null);
+  };
+
   const handleCalibrate = async (sensor: Sensor, targetVoltage: number) => {
     setActionLoading(sensor.id);
     try {
@@ -487,6 +508,7 @@ export default function App() {
                     onEditSensor={() => handleEditSensor(sensor)}
                     onSetThresholds={sensor.sensor_type === 'voltage_meter' ? () => handleSetThresholds(sensor) : undefined}
                     onCalibrate={sensor.sensor_type === 'voltage_meter' ? () => setCalibrateModal({ open: true, sensor }) : undefined}
+                    onSetSleepInterval={sensor.sensor_type === 'voltage_meter' ? () => handleSetSleepInterval(sensor) : undefined}
                     relayLoading={actionLoading === sensor.id}
                     voltageMeterSensors={sensors.filter(s => s.sensor_type === 'voltage_meter' && !s.linked_sensor_id)}
                     onLinkBatteryMonitor={sensor.sensor_type === 'purple_air' ? () => setLinkBatteryModal({ open: true, sensor }) : undefined}
@@ -546,6 +568,16 @@ export default function App() {
         />
       )}
 
+      {/* Sleep Interval Modal */}
+      {sleepIntervalModal.open && sleepIntervalModal.sensor && (
+        <SleepIntervalModal
+          sensor={sleepIntervalModal.sensor}
+          onClose={() => setSleepIntervalModal({ open: false, sensor: null })}
+          onSave={(minutes) => handleSaveSleepInterval(sleepIntervalModal.sensor!, minutes)}
+          loading={actionLoading === sleepIntervalModal.sensor.id}
+        />
+      )}
+
       {/* Link Battery Monitor Modal */}
       {linkBatteryModal.open && linkBatteryModal.sensor && (
         <LinkBatteryModal
@@ -587,6 +619,7 @@ interface SensorCardProps {
   onEditSensor?: () => void;
   onSetThresholds?: () => void;
   onCalibrate?: () => void;
+  onSetSleepInterval?: () => void;
   relayLoading?: boolean;
   voltageMeterSensors?: Sensor[];
   onLinkBatteryMonitor?: () => void;
@@ -861,6 +894,13 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
               {sensor.sensor_type === 'voltage_meter' && onCalibrate && (
                 <button className="dropdown-item" onClick={() => { onCalibrate(); setShowMenu(false); }}>
                   <Settings size={14} /> Calibrate ADC
+                </button>
+              )}
+              
+              {/* Set Sleep Interval */}
+              {sensor.sensor_type === 'voltage_meter' && onSetSleepInterval && (
+                <button className="dropdown-item" onClick={() => { onSetSleepInterval(); setShowMenu(false); }}>
+                  <Moon size={14} /> Set Sleep Duration
                 </button>
               )}
 
@@ -1221,6 +1261,82 @@ function ThresholdsModal({ sensor, onClose, onSave, loading }: ThresholdsModalPr
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? <Loader2 size={16} className="spinner" /> : <Battery size={16} />}
               Set Thresholds
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
+// Sleep Interval Modal for Voltage Meter
+interface SleepIntervalModalProps {
+  sensor: Sensor;
+  onClose: () => void;
+  onSave: (minutes: number) => void;
+  loading: boolean;
+}
+
+function SleepIntervalModal({ sensor, onClose, onSave, loading }: SleepIntervalModalProps) {
+  const currentInterval = sensor.sleep_interval_minutes || 15;
+  const [minutes, setMinutes] = useState(currentInterval.toString());
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const mins = parseInt(minutes);
+    if (!isNaN(mins) && mins >= 1 && mins <= 1440) {
+      onSave(mins);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Set Sleep Duration</h2>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <p className="form-hint" style={{marginBottom: '20px'}}>
+              Configure deep sleep duration for <strong>{sensor.name}</strong>.
+              The ESP32 will wake, read voltage, report data, apply relay logic, then sleep for this duration.
+            </p>
+
+            <div className="form-group">
+              <label className="form-label">Sleep Duration (minutes)</label>
+              <input
+                type="number"
+                min="1"
+                max="1440"
+                step="1"
+                className="form-input mono"
+                value={minutes}
+                onChange={e => setMinutes(e.target.value)}
+                disabled={loading}
+                placeholder="e.g. 15"
+              />
+              <p className="form-hint">
+                Range: 1-1440 minutes (1 minute to 24 hours)<br/>
+                Current: {currentInterval} minutes
+              </p>
+            </div>
+
+            <div className="quick-select-buttons" style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px'}}>
+              <button type="button" className="btn btn-sm" onClick={() => setMinutes('5')} disabled={loading}>5 min</button>
+              <button type="button" className="btn btn-sm" onClick={() => setMinutes('15')} disabled={loading}>15 min</button>
+              <button type="button" className="btn btn-sm" onClick={() => setMinutes('30')} disabled={loading}>30 min</button>
+              <button type="button" className="btn btn-sm" onClick={() => setMinutes('60')} disabled={loading}>1 hour</button>
+              <button type="button" className="btn btn-sm" onClick={() => setMinutes('120')} disabled={loading}>2 hours</button>
+              <button type="button" className="btn btn-sm" onClick={() => setMinutes('360')} disabled={loading}>6 hours</button>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? <Loader2 size={16} className="spinner" /> : <Moon size={16} />}
+              Set Duration
             </button>
           </div>
         </form>

@@ -29,6 +29,8 @@ export interface Sensor {
   load_on: boolean | null;  // For voltage meters - relay/load state
   v_cutoff: number | null;  // For voltage meters - cutoff threshold
   v_reconnect: number | null;  // For voltage meters - reconnect threshold
+  relay_mode: string | null;  // For voltage meters - relay mode (automatic | force_on | force_off)
+  sleep_interval_minutes: number | null;  // For voltage meters - deep sleep duration
 }
 
 // List response

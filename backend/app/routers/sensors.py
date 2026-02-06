@@ -518,6 +518,39 @@ async def set_voltage_meter_relay_mode(
     }
 
 
+class SleepIntervalRequest(BaseModel):
+    """Set ESP32 sleep interval (time between wake cycles)."""
+    sleep_interval_minutes: int = Field(..., description="Sleep duration in minutes (1-1440)", ge=1, le=1440)
+
+
+@router.post("/voltage-meter/{sensor_id}/sleep-interval")
+async def set_voltage_meter_sleep_interval(
+    sensor_id: str,
+    body: SleepIntervalRequest,
+    manager=Depends(get_sensor_manager),
+):
+    """
+    Set deep sleep interval for the voltage meter. Applied on next ESP32 wake cycle.
+    
+    The ESP32 will sleep for this duration between voltage readings and reports.
+    Range: 1-1440 minutes (1 min to 24 hours).
+    """
+    if not validate_sensor_id(sensor_id):
+        raise HTTPException(status_code=400, detail="Invalid sensor ID format")
+    sensor = manager.get_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=404, detail="Voltage meter not found")
+    if sensor.sensor_type != SensorType.VOLTAGE_METER:
+        raise HTTPException(status_code=400, detail="Sleep interval only valid for voltage_meter sensors")
+    
+    manager.update_sensor_field(sensor_id, "sleep_interval_minutes", body.sleep_interval_minutes)
+    return {
+        "status": "ok",
+        "sleep_interval_minutes": body.sleep_interval_minutes,
+        "message": f"Sleep interval set to {body.sleep_interval_minutes} minutes. Will apply on next ESP32 wake cycle.",
+    }
+
+
 @router.post("/voltage-meter/{sensor_id}/relay")
 async def control_voltage_meter_relay(
     sensor_id: str,
