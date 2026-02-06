@@ -155,6 +155,7 @@ class SensorManager:
                         sensor.setdefault("v_reconnect", 12.6)
                         sensor.setdefault("calibration_target", None)
                         sensor.setdefault("calibration_factor", 1.0)
+                        sensor.setdefault("sleep_interval_minutes", 15)
                     
                     self._sensors[sensor_id] = sensor
                 except (ValueError, KeyError, TypeError) as e:
@@ -326,6 +327,7 @@ class SensorManager:
             "v_reconnect": 12.6,
             "calibration_target": None,
             "calibration_factor": 1.0,
+            "sleep_interval_minutes": 15,  # Default: 15 minutes between wake cycles
             # Last known state (updated by ESP32 POST)
             "auto_mode": None,
             "load_on": None,
