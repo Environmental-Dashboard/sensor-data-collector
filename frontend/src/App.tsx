@@ -4,7 +4,7 @@ import {
   Plus, Power, PowerOff, Play, Trash2, X,
   Wifi, WifiOff, Clock, Globe, CheckCircle, XCircle, Loader2,
   Sun, Moon, Battery, Cloud, Sunrise, Settings, MoreVertical,
-  Edit, Link, RefreshCw, Eye
+  Edit, Link, RefreshCw, Eye, Radio
 } from 'lucide-react';
 import type { Sensor, SensorType, AddPurpleAirRequest, AddTempestRequest, AddVoltageMeterRequest } from './types';
 import * as api from './api';
@@ -118,7 +118,7 @@ export default function App() {
     }
   }, []);
 
-  // Initial load
+  // Initial load and periodic refresh
   useEffect(() => {
     const init = async () => {
       await checkConnection();
@@ -126,9 +126,14 @@ export default function App() {
       setLoading(false);
     };
     init();
-    
-    const interval = setInterval(checkConnection, 30000);
-    return () => clearInterval(interval);
+
+    const healthInterval = setInterval(checkConnection, 30000);
+    // Refresh sensor list so voltage/status updates (e.g. after ESP32 check-in) show without page reload
+    const sensorsInterval = setInterval(fetchSensors, 45000);
+    return () => {
+      clearInterval(healthInterval);
+      clearInterval(sensorsInterval);
+    };
   }, [checkConnection, fetchSensors]);
 
   // Sensor actions
@@ -320,31 +325,19 @@ export default function App() {
   const handleCalibrate = async (sensor: Sensor, targetVoltage: number) => {
     setActionLoading(sensor.id);
     try {
-      await api.calibrateVoltageMeter(sensor.id, targetVoltage);
-      showToast('success', `Calibrated to ${targetVoltage}V`);
+      const result = await api.calibrateVoltageMeter(sensor.id, targetVoltage);
+      const msg = result?.message || `Calibration target set to ${targetVoltage}V`;
+      showToast('success', msg);
       setCalibrateModal({ open: false, sensor: null });
       fetchSensors();
     } catch (e: any) {
       let msg = 'Failed to calibrate';
-      if (e?.message) {
+      if (e?.message && typeof e.message === 'string') {
         msg = e.message;
-      } else if (typeof e === 'string') {
-        msg = e;
-      } else if (e?.detail) {
-        msg = e.detail;
       }
-      
-      // Provide more helpful error messages
       if (msg.includes('Cannot connect') || msg.includes('fetch')) {
         msg = 'Cannot reach backend server. Check connection.';
-      } else if (msg.includes('502') || msg.includes('did not accept')) {
-        msg = `ESP32 did not respond. Check IP address (${sensor.ip_address}) and ensure ESP32 is powered on.`;
-      } else if (msg.includes('timeout') || msg.includes('Timeout')) {
-        msg = `ESP32 timeout. Check IP address (${sensor.ip_address}) and network connection.`;
-      } else if (msg.includes('connection') || msg.includes('connect')) {
-        msg = `Cannot connect to ESP32 at ${sensor.ip_address}. Check power and network.`;
       }
-      
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -625,7 +618,25 @@ interface SensorCardProps {
   onLinkBatteryMonitor?: () => void;
 }
 
-function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading, onRelayControl, onPowerModeChange, onFrequencyChange, onViewLastData, onEditSensor, onSetThresholds, onCalibrate, relayLoading, voltageMeterSensors, onLinkBatteryMonitor }: SensorCardProps) {
+function SensorCard({
+  sensor,
+  onTurnOn,
+  onTurnOff,
+  onFetchNow,
+  onDelete,
+  loading,
+  onRelayControl,
+  onPowerModeChange,
+  onFrequencyChange,
+  onViewLastData,
+  onEditSensor,
+  onSetThresholds,
+  onCalibrate,
+  onSetSleepInterval,
+  relayLoading,
+  voltageMeterSensors,
+  onLinkBatteryMonitor,
+}: SensorCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -661,6 +672,7 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
         <div className={`sensor-status ${sensor.status} ${sensor.status_reason === 'battery_low' ? 'battery-low' : ''} ${sensor.status_reason === 'cloud_error' ? 'cloud-error' : ''}`}>
           {sensor.status === 'active' && <Power size={12} />}
           {sensor.status === 'inactive' && <PowerOff size={12} />}
+          {sensor.status === 'listening' && <Radio size={12} />}
           {sensor.status === 'sleeping' && <Moon size={12} />}
           {sensor.status === 'waking' && <Sunrise size={12} />}
           {sensor.status === 'error' && sensor.status_reason !== 'cloud_error' && <XCircle size={12} />}
@@ -669,6 +681,7 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
           {sensor.status === 'offline' && sensor.status_reason !== 'battery_low' && <WifiOff size={12} />}
           {sensor.status === 'sleeping' ? 'sleeping' :
            sensor.status === 'waking' ? 'waking up' :
+           sensor.status === 'listening' ? 'listening' :
            sensor.status_reason === 'battery_low' ? 'low battery' : 
            sensor.status_reason === 'cloud_error' ? 'cloud issue' : 
            sensor.status}
@@ -694,6 +707,11 @@ function SensorCard({ sensor, onTurnOn, onTurnOff, onFetchNow, onDelete, loading
           <div className={`meta-item ${sensor.sensor_type === 'tempest' && sensor.battery_volts < 2.5 ? 'battery-low' : ''}`}>
             <Battery size={14} />
             <span>{sensor.battery_volts.toFixed(2)}V</span>
+            {sensor.sensor_type === 'voltage_meter' && onCalibrate && (
+              <button type="button" className="calibrate-link" onClick={onCalibrate} title="Calibrate ADC to match multimeter">
+                Calibrate
+              </button>
+            )}
           </div>
         )}
         {/* Relay mode indicator for Voltage Meter */}
@@ -960,12 +978,20 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
       if (type === 'purple_air') {
         await onSubmit({ ip_address: ip, name, location, upload_token: token });
       } else if (type === 'tempest') {
-        await onSubmit({ device_id: deviceId, location, upload_token: token });
+        await onSubmit({ device_id: deviceId, name: name || `Tempest ${deviceId}`, location, upload_token: token });
       } else if (type === 'voltage_meter') {
         await onSubmit({ ip_address: ip, name: name || undefined, location, upload_token: token });
       }
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to add sensor';
+      let msg = 'Failed to add sensor';
+      const raw = e?.message ?? e?.detail ?? e;
+      if (typeof raw === 'string' && raw !== '[object Object]') {
+        msg = raw;
+      } else if (Array.isArray(raw)) {
+        msg = raw.map((d: { msg?: string }) => (d?.msg ?? String(d))).filter(Boolean).join('. ') || msg;
+      } else if (raw && typeof raw === 'object' && typeof raw.msg === 'string') {
+        msg = raw.msg;
+      }
       setError(msg);
       setLoading(false);
     }
@@ -1033,6 +1059,21 @@ function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
                   disabled={loading}
                 />
                 <p className="form-hint">Find in WeatherFlow app under station settings</p>
+              </div>
+            )}
+
+            {/* Tempest: Sensor Name */}
+            {type === 'tempest' && (
+              <div className="form-group">
+                <label className="form-label">Sensor Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Roof Weather Station"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  disabled={loading}
+                />
               </div>
             )}
 
@@ -1392,6 +1433,9 @@ function CalibrateModal({ sensor, onClose, onSave, loading }: CalibrateModalProp
                 <span>The ESP32 will auto-calibrate its ADC</span>
               </div>
             </div>
+            <p className="form-hint calibration-note">
+              If the device is reachable at its IP, calibration is applied immediately. If not, the target is saved and sent to the device on its next check-in.
+            </p>
 
             <div className="current-reading">
               <span>Current displayed voltage:</span>

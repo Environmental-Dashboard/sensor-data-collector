@@ -713,20 +713,29 @@ async def calibrate_voltage_meter(
     manager.update_sensor_field(sensor_id, "calibration_target", body.target_voltage)
 
     # Optional: push to ESP32 now if it has an IP and is reachable
+    pushed = False
     vm_ip = sensor.ip_address
     if vm_ip and validate_ip_address(vm_ip):
         vm_service = manager.voltage_meter_service
         try:
-            ok = await vm_service.calibrate(vm_ip, body.target_voltage)
-            if ok:
+            pushed = await vm_service.calibrate(vm_ip, body.target_voltage)
+            if pushed:
                 logger.info(f"Calibration target pushed to {vm_ip}: {body.target_voltage}V")
+            else:
+                logger.warning(f"Could not push calibration to {vm_ip} (device not reachable). Will apply on next ESP32 wake.")
         except Exception as e:
             logger.warning(f"Could not push calibration to {vm_ip}: {e} (will apply on next ESP32 wake)")
+
+    if pushed:
+        message = f"Calibration pushed to device at {vm_ip}"
+    else:
+        message = "Calibration target saved. Will apply on next device check-in."
 
     return {
         "status": "ok",
         "calibration_target": body.target_voltage,
-        "message": "Calibration will be performed on next ESP32 wake cycle",
+        "pushed": pushed,
+        "message": message,
     }
 
 

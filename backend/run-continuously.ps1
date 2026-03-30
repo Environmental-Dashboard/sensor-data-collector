@@ -48,7 +48,6 @@ if ($existingProcesses) {
 # Note: The backend script will start uvicorn and then monitor it
 $backendProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$backendScript`"" -WindowStyle Hidden -PassThru
 Log "Backend PowerShell script started (PID: $($backendProcess.Id))"
-$backendScriptPID = $backendProcess.Id
 
 # Wait for backend to be ready (increased timeout to 120 seconds)
 Log "Waiting for backend to start..."
@@ -103,7 +102,7 @@ if ($backendReady) {
     # Check if tunnel URL was captured
     $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
     if (Test-Path $tunnelUrlFile) {
-        $tunnelUrl = Get-Content $tunnelUrlFile -ErrorAction SilentlyContinue
+        $tunnelUrl = ((Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s','').Trim()
         if ($tunnelUrl) {
             Log "Tunnel URL: $tunnelUrl"
             Log "Frontend should connect via: https://ed-sensor-dashboard.vercel.app"
@@ -120,33 +119,29 @@ if ($backendReady) {
 }
 
 # Track backend process
-$backendProcessId = $null
-$lastBackendCheck = Get-Date
 $consecutiveFailures = 0
+$tunnelConsecutiveFailures = 0
 
 # Monitor processes and restart if needed
 while ($true) {
     Start-Sleep -Seconds 30
     
     # Check backend
-    $backendRunning = $false
     $healthCheckSuccess = $false
     
     try {
         $response = Invoke-WebRequest -Uri "http://localhost:8000/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
-            $backendRunning = $true
             $healthCheckSuccess = $true
             $consecutiveFailures = 0
         }
     } catch {
-        $backendRunning = $false
         $consecutiveFailures++
     }
     
     # Check if there's a process on port 8000 (backend might be starting)
     $portProcesses = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
-    $hasPortProcess = $portProcesses -ne $null
+    $hasPortProcess = $null -ne $portProcesses
     
     # Only restart if:
     # 1. Health check failed AND
@@ -169,7 +164,6 @@ while ($true) {
             # Restart backend
             $backendProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$backendScript`"" -WindowStyle Hidden -PassThru
             Log "Backend restart initiated (PowerShell PID: $($backendProcess.Id))"
-            $backendScriptPID = $backendProcess.Id
             $consecutiveFailures = 0
             Start-Sleep -Seconds 15  # Give it time to start
         } elseif ($consecutiveFailures -ge 3) {
@@ -191,7 +185,6 @@ while ($true) {
             # Restart
             $backendProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$backendScript`"" -WindowStyle Hidden -PassThru
             Log "Backend restart initiated (PID: $($backendProcess.Id))"
-            $backendProcessId = $backendProcess.Id
             $consecutiveFailures = 0
             Start-Sleep -Seconds 15
         } else {
@@ -218,7 +211,7 @@ while ($true) {
         # Check for tunnel URL
         $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
         if (Test-Path $tunnelUrlFile) {
-            $tunnelUrl = (Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s',''
+            $tunnelUrl = ((Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s','').Trim()
             if ($tunnelUrl -and $tunnelUrl.StartsWith("https://")) {
                 Log "Tunnel URL: $tunnelUrl"
                 Log "IMPORTANT: If tunnel URL changed, update Vercel: cd frontend && npx vercel env rm VITE_API_URL production -y && echo `"$tunnelUrl`" | npx vercel env add VITE_API_URL production && npx vercel --prod"
@@ -227,17 +220,62 @@ while ($true) {
     } else {
         # Periodically verify tunnel is working (every 5 minutes)
         if ((Get-Date).Minute % 5 -eq 0 -and (Get-Date).Second -lt 30) {
-            $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
-            if (Test-Path $tunnelUrlFile) {
-                $tunnelUrl = (Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s',''
-                if ($tunnelUrl -and $tunnelUrl.StartsWith("https://")) {
-                    try {
-                        $tunnelHealth = Invoke-WebRequest -Uri "$tunnelUrl/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-                        if ($tunnelHealth.StatusCode -eq 200) {
-                            Log "Tunnel health check: OK (Backend accessible via tunnel)"
+            # Only probe the tunnel when the backend itself is healthy.
+            # During backend restarts, Cloudflare may return 530/5xx even though the tunnel is configured correctly.
+            if ($healthCheckSuccess) {
+                $tunnelUrlFile = Join-Path $scriptDir "tunnel_url.txt"
+                if (Test-Path $tunnelUrlFile) {
+                    $tunnelUrl = ((Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue) -replace '[^\x20-\x7E]','' -replace '\s','').Trim()
+                    if ($tunnelUrl -and $tunnelUrl.StartsWith("https://")) {
+                        $healthUri = "$tunnelUrl/health"
+                        $maxTunnelAttempts = 3
+                        $attempt = 0
+                        $tunnelOk = $false
+                        $lastErrMsg = $null
+
+                        while ($attempt -lt $maxTunnelAttempts -and -not $tunnelOk) {
+                            $attempt++
+                            try {
+                                $tunnelHealth = Invoke-WebRequest -Uri $healthUri -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+                                if ($tunnelHealth.StatusCode -eq 200) {
+                                    $tunnelOk = $true
+                                    break
+                                } else {
+                                    $lastErrMsg = "HTTP $($tunnelHealth.StatusCode)"
+                                }
+                            } catch {
+                                $errMsg = $_.Exception.Message
+                                if ($_.Exception.Response) {
+                                    $code = [int]$_.Exception.Response.StatusCode; if ($code) { $errMsg = "HTTP $code - $errMsg" }
+                                }
+                                $lastErrMsg = $errMsg
+                            }
+
+                            if (-not $tunnelOk -and $attempt -lt $maxTunnelAttempts) {
+                                Start-Sleep -Seconds 10
+                            }
                         }
-                    } catch {
-                        Log "WARNING: Tunnel health check failed. Tunnel may be down."
+
+                        if ($tunnelOk) {
+                            $tunnelConsecutiveFailures = 0
+                            Log "Tunnel health check: OK (Backend accessible via tunnel)"
+                        } else {
+                            $tunnelConsecutiveFailures++
+                            Log "WARNING: Tunnel health check failed (attempts=$maxTunnelAttempts). Error: $lastErrMsg"
+
+                            # If the tunnel health keeps failing, restart cloudflared.
+                            if ($tunnelConsecutiveFailures -ge 3) {
+                                Log "WARNING: Tunnel health failing repeatedly ($tunnelConsecutiveFailures times). Restarting tunnel..."
+                                Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                                Start-Sleep -Seconds 2
+
+                                $tunnelScript = Join-Path $scriptDir "start-tunnel.ps1"
+                                $tunnelProcess = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File `"$tunnelScript`"" -WindowStyle Hidden -PassThru
+                                Log "Tunnel restart initiated (PID: $($tunnelProcess.Id))"
+                                $tunnelConsecutiveFailures = 0
+                                Start-Sleep -Seconds 10
+                            }
+                        }
                     }
                 }
             }

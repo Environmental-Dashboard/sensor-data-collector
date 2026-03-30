@@ -1,6 +1,6 @@
 // Sensor types
 export type SensorType = 'purple_air' | 'tempest' | 'water_quality' | 'do_sensor' | 'voltage_meter';
-export type SensorStatus = 'active' | 'inactive' | 'error' | 'offline' | 'sleeping' | 'waking';
+export type SensorStatus = 'active' | 'inactive' | 'error' | 'offline' | 'sleeping' | 'waking' | 'listening';
 export type PowerMode = 'normal' | 'power_saving';
 
 // Relay mode for voltage meters
@@ -49,6 +49,7 @@ export interface AddPurpleAirRequest {
 
 export interface AddTempestRequest {
   device_id: string;
+  name: string;
   location: string;
   upload_token: string;
 }

@@ -362,7 +362,11 @@ class TempestService:
                 error_msg = "Invalid API token - check your WeatherFlow token"
             elif e.response.status_code == 404:
                 error_type = "not_found"
-                error_msg = f"Device {device_id} not found in WeatherFlow Cloud"
+                error_msg = (
+                    f"Device {device_id} not found in WeatherFlow Cloud. "
+                    "Check: (1) Device ID in WeatherFlow app → Station Settings; "
+                    "(2) TEMPEST_API_TOKEN is from the same account that owns this station."
+                )
             else:
                 error_type = "http_error"
                 error_msg = f"HTTP error {e.response.status_code}: {error_body}"

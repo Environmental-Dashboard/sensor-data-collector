@@ -68,6 +68,7 @@ class SensorStatus(str, Enum):
     OFFLINE = Can't reach the sensor at all.
     SLEEPING = Power saving mode - relay OFF, waiting for next poll.
     WAKING = Power saving mode - relay ON, sensor booting up.
+    LISTENING = Waiting for device to check in via POST (no active polling).
     """
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -75,6 +76,7 @@ class SensorStatus(str, Enum):
     OFFLINE = "offline"
     SLEEPING = "sleeping"
     WAKING = "waking"
+    LISTENING = "listening"
 
 
 class PowerMode(str, Enum):

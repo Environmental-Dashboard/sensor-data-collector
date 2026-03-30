@@ -228,17 +228,17 @@ class VoltageMeterService:
             
             return True
         except httpx.ConnectError as e:
-            logger.error(f"Cannot connect to voltage meter at {ip_address} for calibration: {e}")
-            raise Exception(f"Cannot connect to ESP32 at {ip_address}. Check power and network connection.")
+            logger.warning(f"Cannot connect to voltage meter at {ip_address} for calibration: {e}")
+            return False
         except httpx.TimeoutException:
-            logger.error(f"Timeout connecting to voltage meter at {ip_address} for calibration")
-            raise Exception(f"ESP32 at {ip_address} did not respond. Check power and network connection.")
+            logger.warning(f"Timeout connecting to voltage meter at {ip_address} for calibration")
+            return False
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error calibrating voltage meter at {ip_address}: {e.response.status_code}")
-            raise Exception(f"ESP32 returned error {e.response.status_code}. Check ESP32 firmware.")
+            logger.warning(f"HTTP error calibrating voltage meter at {ip_address}: {e.response.status_code}")
+            return False
         except Exception as e:
-            logger.error(f"Error calibrating voltage meter at {ip_address}: {e}")
-            raise Exception(f"Calibration failed: {str(e)}")
+            logger.warning(f"Error calibrating voltage meter at {ip_address}: {e}")
+            return False
     
     
     def create_csv_row(self, status: dict) -> str:
