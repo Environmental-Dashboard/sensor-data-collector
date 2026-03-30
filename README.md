@@ -4,6 +4,16 @@ A system for collecting environmental sensor data and uploading it to the cloud.
 
 **Live Dashboard:** https://ed-sensor-dashboard.vercel.app
 
+## More Documentation
+
+For deployment and operations guides, see the `docs/` directory:
+
+- `docs/ARCHITECTURES.md`
+- `docs/DEPLOYMENT_PRODUCTION_TUNNEL.md`
+- `docs/DEPLOYMENT_SLEEP_DURATION.md`
+- `docs/SCHEDULED_TASK_SETUP.md`
+- `docs/UPDATE_VERCEL.md`
+
 ---
 
 ## Supported Sensors
