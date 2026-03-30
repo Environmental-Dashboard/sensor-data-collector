@@ -36,7 +36,7 @@ DEPLOYMENT SUMMARY: Sleep Duration Control Feature
    - Files changed: 8 files, 547+ lines added
 
 5. ✅ Documentation
-   - Created comprehensive deployment guide: DEPLOYMENT_SLEEP_DURATION.md
+   - Created comprehensive deployment guide: docs/DEPLOYMENT_SLEEP_DURATION.md
    - Includes:
      * Backend deployment steps (systemd/Windows/manual)
      * Frontend deployment (Vercel auto/manual)
@@ -78,7 +78,7 @@ STEP 4: Test Feature
 FILES TO REVIEW:
 ================================================================================
 
-📄 DEPLOYMENT_SLEEP_DURATION.md
+📄 docs/DEPLOYMENT_SLEEP_DURATION.md
    → Complete deployment guide (387 lines)
    → Read this first for detailed instructions
 
