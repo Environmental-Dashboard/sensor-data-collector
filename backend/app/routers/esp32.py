@@ -140,12 +140,20 @@ async def esp32_report_voltage(
     manager.update_sensor_field(body.sensor_id, "auto_mode", body.auto_mode)
     manager.update_sensor_field(body.sensor_id, "last_active", datetime.now(timezone.utc))
 
-    # If ESP32 reports a calibration_factor and we had a pending calibration_target, clear pending (calibration was applied)
+    # Only clear calibration_target when the device reports a *new* calibration_factor (i.e. it applied calibration).
+    # Otherwise we would clear on the first POST (device still sends old factor 1.0) and the response would have
+    # calibration_target=null, so the device would never see the target.
     sensor_dict = manager.get_sensor_raw(body.sensor_id)
     if sensor_dict and sensor_dict.get("calibration_target") is not None and body.calibration_factor is not None:
-        manager.update_sensor_field(body.sensor_id, "calibration_factor", body.calibration_factor)
-        manager.update_sensor_field(body.sensor_id, "calibration_target", None)
-        logger.info(f"[ESP32] {sensor.name} calibration applied, factor={body.calibration_factor}, pending cleared")
+        old_factor = sensor_dict.get("calibration_factor")
+        try:
+            old_f = float(old_factor) if old_factor is not None else 1.0
+        except (TypeError, ValueError):
+            old_f = 1.0
+        if abs(body.calibration_factor - old_f) > 0.001:
+            manager.update_sensor_field(body.sensor_id, "calibration_factor", body.calibration_factor)
+            manager.update_sensor_field(body.sensor_id, "calibration_target", None)
+            logger.info(f"[ESP32] {sensor.name} calibration applied, factor={body.calibration_factor}, pending cleared")
 
     # Build commands (desired state from dashboard) for ESP32 to apply on next cycle
     sensor_after = manager.get_sensor(body.sensor_id)

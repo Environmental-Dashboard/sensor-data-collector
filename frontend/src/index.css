@@ -521,6 +521,11 @@ body {
   color: var(--text-muted);
 }
 
+.sensor-status.listening {
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+}
+
 .sensor-status.error {
   background: var(--error-dim);
   color: var(--error);
@@ -559,6 +564,24 @@ body {
 
 .meta-item.battery-low svg {
   color: var(--warning);
+}
+
+.meta-item .calibrate-link {
+  padding: 2px 8px;
+  margin-left: 4px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.meta-item .calibrate-link:hover {
+  color: var(--text-primary);
+  border-color: var(--border-default);
+  background: var(--bg-hover);
 }
 
 .sensor-error {
@@ -833,6 +856,15 @@ html:not(.dark) .form-input:focus {
 
 .form-hint a:hover {
   color: var(--text-primary);
+}
+
+.form-hint.calibration-note {
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--text-muted);
 }
 
 .form-error {

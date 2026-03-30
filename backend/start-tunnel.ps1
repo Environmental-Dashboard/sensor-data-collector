@@ -103,8 +103,9 @@ Log "Tunnel URL (stable): $tunnelUrl"
 # Wait a moment for tunnel to connect
 Start-Sleep -Seconds 5
 
-# Save the stable tunnel URL to a file
-$tunnelUrl | Out-File -FilePath $tunnelUrlFile -Force
+# Save the stable tunnel URL to a file (UTF-8 no BOM so health check reads it correctly)
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($tunnelUrlFile, $tunnelUrl, $utf8NoBom)
 Log "Tunnel URL saved to: $tunnelUrlFile"
     
     # Verify tunnel is accessible

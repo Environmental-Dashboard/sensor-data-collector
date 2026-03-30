@@ -15,14 +15,27 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || err.message || `Error: ${res.status} ${res.statusText}`);
+      let message = err.message || `Error: ${res.status} ${res.statusText}`;
+      if (err.detail !== undefined) {
+        if (Array.isArray(err.detail)) {
+          message = err.detail.map((d: { msg?: string }) => (d && typeof d === 'object' && d.msg) || String(d)).join('. ');
+        } else if (typeof err.detail === 'string') {
+          message = err.detail;
+        } else if (err.detail && typeof err.detail === 'object' && typeof (err.detail as { msg?: string }).msg === 'string') {
+          message = (err.detail as { msg: string }).msg;
+        }
+      }
+      throw new Error(message);
     }
     
     return res.json();
   } catch (error: any) {
     // Handle network errors (fetch failed completely)
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      throw new Error(`Cannot connect to backend. Check if backend is running at ${API_URL}`);
+      const tip = API_URL.includes('http://localhost') 
+        ? 'Check if the backend is running (e.g. run-continuously.ps1 or start-backend.ps1).'
+        : 'Ensure the backend and Cloudflare tunnel are running on the server (e.g. SensorDataCollector scheduled task or run-continuously.ps1).';
+      throw new Error(`Cannot connect to backend at ${API_URL}. ${tip}`);
     }
     // Re-throw if it's already an Error with a message
     if (error instanceof Error) {

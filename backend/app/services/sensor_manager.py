@@ -236,7 +236,13 @@ class SensorManager:
                     elif sensor["sensor_type"] == SensorType.TEMPEST:
                         self._start_polling_job(sensor_id, self._poll_tempest_sensor)
                     elif sensor["sensor_type"] == SensorType.VOLTAGE_METER:
-                        self._start_polling_job(sensor_id, self._poll_voltage_meter)
+                        vm_ip = (sensor.get("ip_address") or "").strip()
+                        if vm_ip:
+                            self._start_polling_job(sensor_id, self._poll_voltage_meter)
+                        else:
+                            # POST-only: no polling, set to listening
+                            sensor["status"] = SensorStatus.LISTENING
+                            logger.info(f"  POST-only voltage meter, skipping poll (listening for check-ins)")
                 except Exception as e:
                     logger.error(f"Failed to restart polling for sensor {sensor_id}: {e}")
                     sensor["is_active"] = False
@@ -374,15 +380,18 @@ class SensorManager:
         self._sensors[sensor_id] = sensor_data
         self._save_to_file()  # Persist to disk
         
-        # Send new sensor notification email
-        self.email_service.send_new_sensor_notification(
-            sensor_id=sensor_id,
-            sensor_name=request.name,
-            sensor_type="tempest",
-            location=request.location,
-            ip_address=request.ip_address,
-            upload_token=request.upload_token
-        )
+        # Send new sensor notification email (non-blocking; don't fail add if email fails)
+        try:
+            self.email_service.send_new_sensor_notification(
+                sensor_id=sensor_id,
+                sensor_name=request.name,
+                sensor_type="tempest",
+                location=request.location,
+                ip_address=request.ip_address,
+                upload_token=request.upload_token
+            )
+        except Exception as e:
+            logger.warning(f"New sensor notification email failed (sensor still added): {e}")
         
         return SensorResponse(**{k: v for k, v in sensor_data.items() if k != "upload_token"})
     
@@ -726,8 +735,14 @@ class SensorManager:
             self._start_polling_job(sensor_id, self._poll_tempest_sensor)
             sensor["status"] = SensorStatus.ACTIVE
         elif sensor["sensor_type"] == SensorType.VOLTAGE_METER:
-            self._start_polling_job(sensor_id, self._poll_voltage_meter)
-            sensor["status"] = SensorStatus.ACTIVE
+            vm_ip = (sensor.get("ip_address") or "").strip()
+            if vm_ip:
+                # Has an IP: poll directly
+                self._start_polling_job(sensor_id, self._poll_voltage_meter)
+                sensor["status"] = SensorStatus.ACTIVE
+            else:
+                # POST-only (Option B): no polling needed, just listen for check-ins
+                sensor["status"] = SensorStatus.LISTENING
         
         sensor["is_active"] = True
         self._save_to_file()  # Persist to disk
@@ -1114,10 +1129,11 @@ class SensorManager:
             return
         ip = sensor.get("ip_address") or ""
         if not (isinstance(ip, str) and ip.strip()):
-            # No IP = Option B: device reports via POST; don't poll, clear connection error
+            # No IP = Option B: device reports via POST; don't poll, set to listening
             sensor["last_error"] = None
-            sensor["status"] = SensorStatus.INACTIVE
+            sensor["status"] = SensorStatus.LISTENING
             sensor["status_reason"] = None
+            self._stop_polling_job(sensor_id)  # Stop further polls — not needed
             self._save_to_file()
             return
         try:
@@ -1149,12 +1165,12 @@ class SensorManager:
                 error_type = result.get("error_type")
                 error_msg = result.get("error_message", "Unknown error")
                 if error_type in ["connection_error", "timeout"]:
-                    # Voltage meter unreachable: use softer message (Option B devices report via POST)
-                    soft_msg = (
-                        "Device not reachable at this IP. "
-                        "If it reports via POST, relay/threshold commands will apply on next check-in."
-                    )
-                    self._update_sensor_status(sensor, SensorStatus.INACTIVE, soft_msg, error_type)
+                    # Voltage meter unreachable: switch to listening mode (no more polling)
+                    sensor["status"] = SensorStatus.LISTENING
+                    sensor["last_error"] = None
+                    sensor["status_reason"] = None
+                    self._stop_polling_job(sensor_id)
+                    logger.info(f"[{sensor.get('name', sensor_id)}] Not reachable at IP, switching to listening mode (POST check-ins)")
                 else:
                     self._update_sensor_status(sensor, SensorStatus.ERROR, error_msg, error_type)
         except Exception as e:
@@ -1233,19 +1249,30 @@ class SensorManager:
             if sensor["sensor_type"] == SensorType.PURPLE_AIR and voltage_meter:
                 result = await self._enhance_error_with_voltage_meter_status(result, voltage_meter, power_mode)
             
-            sensor["last_error"] = result.get("error_message", "Unknown error")
-            sensor["status_reason"] = result.get("error_type")
-            
-            if result.get("error_type") == "battery_low":
+            error_type = result.get("error_type")
+            error_msg = result.get("error_message", "Unknown error")
+
+            # Voltage meters with connection errors: switch to listening mode
+            if sensor["sensor_type"] == SensorType.VOLTAGE_METER and error_type in ["connection_error", "timeout"]:
+                sensor["last_error"] = None
+                sensor["status"] = SensorStatus.LISTENING
+                sensor["status_reason"] = None
+            elif error_type == "battery_low":
+                sensor["last_error"] = error_msg
+                sensor["status_reason"] = error_type
                 sensor["status"] = SensorStatus.OFFLINE
-            elif result.get("error_type") == "sleeping":
+            elif error_type == "sleeping":
                 # In power saving mode, load OFF with good voltage = sleeping (not an error)
                 sensor["status"] = SensorStatus.SLEEPING
                 sensor["status_reason"] = None
                 sensor["last_error"] = None
-            elif result.get("error_type") == "cloud_error":
+            elif error_type == "cloud_error":
+                sensor["last_error"] = error_msg
+                sensor["status_reason"] = error_type
                 sensor["status"] = SensorStatus.ERROR
             else:
+                sensor["last_error"] = error_msg
+                sensor["status_reason"] = error_type
                 sensor["status"] = SensorStatus.ERROR
             
             if result.get("battery_voltage") is not None:
