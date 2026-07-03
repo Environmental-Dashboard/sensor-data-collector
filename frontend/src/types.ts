@@ -31,6 +31,7 @@ export interface Sensor {
   v_reconnect: number | null;  // For voltage meters - reconnect threshold
   relay_mode: string | null;  // For voltage meters - relay mode (automatic | force_on | force_off)
   sleep_interval_minutes: number | null;  // For voltage meters - deep sleep duration
+  last_csv_sample: string | null;  // Most recent CSV sent to the cloud (preview on card)
 }
 
 // List response

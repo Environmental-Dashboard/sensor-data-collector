@@ -338,6 +338,7 @@ class SensorResponse(BaseModel):
     calibration_target: Optional[float] = Field(None, description="Pending calibration target voltage; null when none (Voltage Meter)")
     calibration_factor: Optional[float] = Field(None, description="Current calibration factor from ESP32 (read-only) (Voltage Meter)")
     sleep_interval_minutes: Optional[int] = Field(None, description="Deep sleep duration in minutes between wake cycles (Voltage Meter)")
+    last_csv_sample: Optional[str] = Field(None, description="Most recent CSV sent to the cloud (shown as a preview on the dashboard)")
 
 
 class SensorListResponse(BaseModel):

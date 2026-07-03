@@ -56,6 +56,36 @@ function useEscapeKey(onClose: () => void) {
   }, [onClose]);
 }
 
+// Parse the first data row of a CSV into a few labelled values for card previews
+function parseCsvPreview(csv: string, max = 3): { label: string; value: string }[] {
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim());
+  const values = lines[1].split(',').map(v => v.trim());
+  const pairs: { label: string; value: string }[] = [];
+  for (let i = 0; i < headers.length && pairs.length < max; i++) {
+    const header = headers[i];
+    const lower = header.toLowerCase();
+    // Skip timestamps and uptime counters - not interesting at a glance
+    if (lower.includes('timestamp') || lower.includes('time') || lower.includes('date') || lower.includes('uptime')) continue;
+    const label = header.replace(/\s*\([^)]*\)/g, '').replace(/:/g, '').trim();
+    const unit = header.match(/\(([^)]+)\)/)?.[1] ?? '';
+    let value = values[i] ?? '';
+    // Boolean-like fields (relay/auto flags)
+    if ((value === '0' || value === '1') && /load|auto|on/i.test(label)) {
+      value = value === '1' ? 'Yes' : 'No';
+    } else {
+      const num = parseFloat(value);
+      if (!isNaN(num) && value !== '' && !value.includes('-') && !value.includes('T')) {
+        value = Number.isInteger(num) ? String(num) : num.toFixed(1);
+      }
+    }
+    if (value === '') continue;
+    pairs.push({ label, value: unit ? `${value} ${unit}` : value });
+  }
+  return pairs;
+}
+
 // Format relative time
 function timeAgo(timestamp: string | null): string {
   if (!timestamp) return 'Never';
@@ -765,6 +795,26 @@ function SensorCard({
           <span>{timeAgo(sensor.last_active)}</span>
         </div>
       </div>
+
+      {/* Last sent data preview - click for the full table */}
+      {sensor.last_csv_sample && onViewLastData && (() => {
+        const pairs = parseCsvPreview(sensor.last_csv_sample);
+        if (pairs.length === 0) return null;
+        return (
+          <button type="button" className="last-data-preview" onClick={onViewLastData} title="Click to view all last sent data">
+            <span className="last-data-preview-label">
+              <Database size={12} /> Last sent
+            </span>
+            {pairs.map(p => (
+              <span key={p.label} className="last-data-chip">
+                <span className="chip-label">{p.label}</span>
+                <span className="chip-value">{p.value}</span>
+              </span>
+            ))}
+            <span className="last-data-more">View all →</span>
+          </button>
+        );
+      })()}
 
       {/* Sleeping indicator (power saving mode) */}
       {sensor.status === 'sleeping' && (
