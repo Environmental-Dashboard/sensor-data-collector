@@ -1131,10 +1131,14 @@ class SensorManager:
                 # Update battery voltage from reading
                 if result.get("reading") and result["reading"].get("battery_volts"):
                     sensor["battery_volts"] = result["reading"]["battery_volts"]
+                # Store CSV sample so "View Last Sent Data" works (same as
+                # Purple Air / Voltage Meter; skipped uploads carry no sample)
+                if "csv_sample" in result.get("upload_result", {}):
+                    sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
             else:
                 error_type = result.get("error_type")
                 error_msg = result.get("error_message", "Unknown error")
-                
+
                 if error_type in ["connection_error", "timeout"]:
                     # API not responding = INACTIVE
                     self._update_sensor_status(sensor, SensorStatus.INACTIVE, error_msg, error_type)
@@ -1146,8 +1150,8 @@ class SensorManager:
             self._update_sensor_status(sensor, SensorStatus.ERROR, f"Poll error: {str(e)}", "poll_error")
         finally:
             self._save_to_file()
-    
-    
+
+
     async def _poll_voltage_meter(self, sensor_id: str):
         """Poll a Voltage Meter (runs every 60 seconds). Skip if no IP (Option B: device POSTs only)."""
         sensor = self._sensors.get(sensor_id)
