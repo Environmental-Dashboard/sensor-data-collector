@@ -630,9 +630,15 @@ class SensorManager:
             error_start_time = sensor.get("error_start_time")
             if error_start_time:
                 # Convert to datetime if it's a string
+                # (stored as ISO format by _save_to_file; handle trailing 'Z' too)
                 if isinstance(error_start_time, str):
-                    from dateutil.parser import parse
-                    error_start_time = parse(error_start_time)
+                    try:
+                        error_start_time = datetime.fromisoformat(error_start_time.replace('Z', '+00:00'))
+                        if error_start_time.tzinfo is None:
+                            error_start_time = error_start_time.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        error_start_time = datetime.now(timezone.utc)
+                        sensor["error_start_time"] = error_start_time
                 elif not isinstance(error_start_time, datetime):
                     # If it's not a datetime, use current time (fallback)
                     error_start_time = datetime.now(timezone.utc)
@@ -1334,27 +1340,6 @@ class SensorManager:
         self._save_to_file()
         
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
-    
-    def set_power_mode(self, sensor_id: str, power_mode: str) -> Optional[SensorResponse]:
-        """
-        Set the power mode for a Purple Air sensor (sync wrapper - DEPRECATED).
-        
-        NOTE: This method creates a new event loop which is not recommended.
-        Use set_power_mode_async() instead, which is called directly by the router.
-        """
-        logger.warning("set_power_mode() sync wrapper called - use set_power_mode_async() instead")
-        # Use asyncio to run the async version
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(self.set_power_mode_async(sensor_id, power_mode))
-            finally:
-                loop.close()
-        except Exception as e:
-            logger.error(f"Error in sync set_power_mode wrapper: {e}", exc_info=True)
-            return None
-    
     
     # =========================================================================
     # CLEANUP

@@ -45,6 +45,17 @@ function useTheme() {
   return { theme, toggleTheme };
 }
 
+// Close on Escape key (modals, menus)
+function useEscapeKey(onClose: () => void) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+}
+
 // Format relative time
 function timeAgo(timestamp: string | null): string {
   if (!timestamp) return 'Never';
@@ -641,16 +652,24 @@ function SensorCard({
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Close menu when clicking outside
+  // Close menu when clicking outside or pressing Escape
   useEffect(() => {
+    if (!showMenu) return;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (showMenu && menuRef.current && !menuRef.current.contains(target)) {
+      if (menuRef.current && !menuRef.current.contains(target)) {
         setShowMenu(false);
       }
     };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowMenu(false);
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [showMenu]);
 
   // Get relay mode text for voltage meters
@@ -943,6 +962,7 @@ interface AddSensorModalProps {
 }
 
 function AddSensorModal({ type, onClose, onSubmit }: AddSensorModalProps) {
+  useEscapeKey(onClose);
   const [ip, setIp] = useState('');
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
@@ -1156,6 +1176,7 @@ interface EditSensorModalProps {
 }
 
 function EditSensorModal({ sensor, onClose, onSave, loading }: EditSensorModalProps) {
+  useEscapeKey(onClose);
   const [name, setName] = useState(sensor.name);
   const [location, setLocation] = useState(sensor.location);
   const [ipAddress, setIpAddress] = useState(sensor.ip_address || '');
@@ -1247,6 +1268,7 @@ interface ThresholdsModalProps {
 }
 
 function ThresholdsModal({ sensor, onClose, onSave, loading }: ThresholdsModalProps) {
+  useEscapeKey(onClose);
   const [cutoff, setCutoff] = useState(sensor.v_cutoff?.toString() || '11.0');
   const [reconnect, setReconnect] = useState(sensor.v_reconnect?.toString() || '12.6');
 
@@ -1320,6 +1342,7 @@ interface SleepIntervalModalProps {
 }
 
 function SleepIntervalModal({ sensor, onClose, onSave, loading }: SleepIntervalModalProps) {
+  useEscapeKey(onClose);
   const currentInterval = sensor.sleep_interval_minutes || 15;
   const [minutes, setMinutes] = useState(currentInterval.toString());
 
@@ -1396,6 +1419,7 @@ interface CalibrateModalProps {
 }
 
 function CalibrateModal({ sensor, onClose, onSave, loading }: CalibrateModalProps) {
+  useEscapeKey(onClose);
   const [targetVoltage, setTargetVoltage] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1483,6 +1507,7 @@ interface LinkBatteryModalProps {
 }
 
 function LinkBatteryModal({ sensor, availableVoltageMeters, onClose, onLink, loading }: LinkBatteryModalProps) {
+  useEscapeKey(onClose);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -1544,6 +1569,7 @@ interface LastDataModalProps {
 }
 
 function LastDataModal({ sensor, data, onClose }: LastDataModalProps) {
+  useEscapeKey(onClose);
   // Parse CSV into headers and rows
   const parseCSV = (csv: string | null): { headers: string[]; rows: string[][] } => {
     if (!csv) return { headers: [], rows: [] };

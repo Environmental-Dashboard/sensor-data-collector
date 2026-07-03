@@ -143,23 +143,13 @@ class TempestService:
         device_info = data.get("device", {})
         
         if not obs or len(obs) < 18:
-            # Return empty reading if data is missing
-            return (
-                TempestReading(
-                    timestamp=datetime.now(timezone.utc),
-                    temperature_f=0.0,
-                    humidity_percent=0.0,
-                    pressure_mb=0.0,
-                    wind_speed_mph=0.0,
-                    wind_gust_mph=0.0,
-                    wind_direction_deg=0,
-                    rain_inches=0.0,
-                    uv_index=0.0,
-                    solar_radiation=0.0,
-                    lightning_count=0
-                ),
-                0,
-                0.0
+            # Don't fabricate a zero-filled reading - that would silently mask
+            # a broken/empty cloud response as "success, no new data" and the
+            # dashboard would show the station as healthy forever.
+            # fetch_and_push catches ValueError and reports a proper error status.
+            raise ValueError(
+                f"Incomplete observation data from WeatherFlow Cloud API "
+                f"(got {len(obs)} fields, need 18) - the station may be offline"
             )
         
         # WeatherFlow obs_st array indices:

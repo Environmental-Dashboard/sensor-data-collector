@@ -46,6 +46,7 @@ GET    /api/sensors/do-sensor     - List DO sensors
 Author: Frank Kusi Appiah
 """
 
+import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
@@ -597,8 +598,7 @@ async def control_voltage_meter_relay(
     if not ok:
         raise HTTPException(status_code=502, detail="Voltage meter did not accept relay command")
 
-    # CRITICAL: Wait a moment for ESP32 to process, then fetch updated state
-    import asyncio
+    # Wait a moment for the ESP32 to process, then fetch updated state
     await asyncio.sleep(0.5)
     
     # Update sensor data with new relay state

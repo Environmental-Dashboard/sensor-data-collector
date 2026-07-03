@@ -3,10 +3,16 @@ import type { Sensor, SensorListResponse, AddPurpleAirRequest, AddTempestRequest
 // Use environment variable for API URL, fallback to localhost for development
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Abort requests that hang (e.g. tunnel down) instead of waiting forever
+const REQUEST_TIMEOUT_MS = 20000;
+
 async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(`${API_URL}${endpoint}`, {
       ...options,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -30,9 +36,13 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     
     return res.json();
   } catch (error: any) {
+    // Request aborted by our timeout
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s. The backend may be slow or the tunnel may be down.`);
+    }
     // Handle network errors (fetch failed completely)
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      const tip = API_URL.includes('http://localhost') 
+      const tip = API_URL.includes('http://localhost')
         ? 'Check if the backend is running (e.g. run-continuously.ps1 or start-backend.ps1).'
         : 'Ensure the backend and Cloudflare tunnel are running on the server (e.g. SensorDataCollector scheduled task or run-continuously.ps1).';
       throw new Error(`Cannot connect to backend at ${API_URL}. ${tip}`);
@@ -43,6 +53,8 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     }
     // Otherwise wrap in Error
     throw new Error(String(error));
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

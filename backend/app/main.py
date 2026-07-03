@@ -28,7 +28,8 @@ class Config:
     # Get from https://tempestwx.com/settings/tokens
     # One token works for ALL Tempest devices
     # Token is passed as query parameter: ?token=...
-    TEMPEST_API_TOKEN = os.getenv("TEMPEST_API_TOKEN", "61a83ac0-678f-4284-b9aa-e962cf6a7ede")
+    # Set TEMPEST_API_TOKEN in backend/.env (never hardcode tokens in source)
+    TEMPEST_API_TOKEN = os.getenv("TEMPEST_API_TOKEN", "")
     
     # CORS - Allow the frontend to connect
     # Add all known Vercel deployment URLs here
@@ -57,8 +58,12 @@ async def lifespan(app: FastAPI):
     purple_air_service = PurpleAirService()
     tempest_service = TempestService(api_token=Config.TEMPEST_API_TOKEN)
     voltage_meter_service = VoltageMeterService()
-    
-    print(f"Tempest API Token: {Config.TEMPEST_API_TOKEN[:8]}...{Config.TEMPEST_API_TOKEN[-4:]}")
+
+    if Config.TEMPEST_API_TOKEN:
+        print(f"Tempest API Token: {Config.TEMPEST_API_TOKEN[:8]}...{Config.TEMPEST_API_TOKEN[-4:]}")
+    else:
+        print("WARNING: TEMPEST_API_TOKEN is not set - Tempest sensors will not work.")
+        print("         Add it to backend/.env (see env.example.txt)")
     
     sensor_manager = SensorManager(
         purple_air_service=purple_air_service,
@@ -91,31 +96,40 @@ app = FastAPI(
 )
 
 
-# Custom CORS middleware to handle all Vercel origins
+def _is_allowed_origin(origin: str) -> bool:
+    """Allow explicit origins plus this team's Vercel preview deployments.
+
+    Note: deliberately NOT a blanket *.vercel.app match - anyone can deploy
+    to vercel.app, so that would let arbitrary sites call this API from a browser.
+    """
+    if origin in Config.CORS_ORIGINS:
+        return True
+    # Vercel preview deploys for this team, e.g.
+    # https://frontend-xxxx-environment-dashboards-projects.vercel.app
+    return origin.startswith("https://") and origin.endswith("-environment-dashboards-projects.vercel.app")
+
+
+# Custom CORS middleware to handle Vercel preview deployment origins
 @app.middleware("http")
 async def cors_middleware(request: Request, call_next):
-    """Handle CORS for all Vercel origins and localhost."""
+    """Handle CORS for known frontend origins and localhost."""
     origin = request.headers.get("origin")
-    
+    allowed = origin is not None and _is_allowed_origin(origin)
+
     # Handle preflight OPTIONS request
     if request.method == "OPTIONS":
         response = Response(status_code=200)
-        if origin and (origin.endswith(".vercel.app") or origin in Config.CORS_ORIGINS):
+        if allowed:
             response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "*"
             response.headers["Access-Control-Max-Age"] = "3600"
-        else:
-            # Still allow but log for debugging
-            response.headers["Access-Control-Allow-Origin"] = "*"
         return response
-    
+
     # Handle actual request
     response = await call_next(request)
-    if origin and (origin.endswith(".vercel.app") or origin in Config.CORS_ORIGINS):
+    if allowed:
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "*"
     return response

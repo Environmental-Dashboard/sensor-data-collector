@@ -216,10 +216,11 @@ class EmailService:
     - ALERT_EMAIL: Email address to send alerts to (default: dashboards@oberlin.edu)
     """
     
-    # New sensor notification recipients
+    # New sensor notification recipients (defaults; override with
+    # NEW_SENSOR_TO / NEW_SENSOR_CC env vars as comma-separated lists)
     NEW_SENSOR_TO = ["gaurav@communityhub.cloud", "pratyush@communityhub.cloud"]
     NEW_SENSOR_CC = ["john.petersen@oberlin.edu", "cransom@oberlin.edu", "msimoya@oberlin.edu", "menard@oberlin.edu"]
-    
+
     def __init__(self):
         """Initialize email service with configuration from environment."""
         self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -228,6 +229,14 @@ class EmailService:
         self.smtp_password = os.getenv("SMTP_PASSWORD", "")
         self.alert_email = os.getenv("ALERT_EMAIL", "dashboard@oberlin.edu")
         self.from_email = os.getenv("FROM_EMAIL", self.smtp_user or "sensor-dashboard@oberlin.edu")
+
+        # Allow overriding new-sensor notification recipients via env vars
+        env_to = os.getenv("NEW_SENSOR_TO", "")
+        env_cc = os.getenv("NEW_SENSOR_CC", "")
+        if env_to.strip():
+            self.NEW_SENSOR_TO = [e.strip() for e in env_to.split(",") if e.strip()]
+        if env_cc.strip():
+            self.NEW_SENSOR_CC = [e.strip() for e in env_cc.split(",") if e.strip()]
         
         # Track sent alerts to avoid spam (sensor_id -> last_alert_time)
         self._last_alerts: dict[str, datetime] = {}
@@ -246,11 +255,20 @@ class EmailService:
     
     def _can_send_alert(self, sensor_id: str) -> bool:
         """Check if we can send an alert for this sensor (cooldown check)."""
+        # Prune stale entries so the dict doesn't grow forever on a
+        # long-running server (deleted sensors would otherwise linger)
+        now = datetime.now(timezone.utc)
+        stale_cutoff = self.alert_cooldown_seconds * 10
+        self._last_alerts = {
+            sid: t for sid, t in self._last_alerts.items()
+            if (now - t).total_seconds() < stale_cutoff
+        }
+
         if sensor_id not in self._last_alerts:
             return True
-        
+
         last_alert = self._last_alerts[sensor_id]
-        elapsed = (datetime.now(timezone.utc) - last_alert).total_seconds()
+        elapsed = (now - last_alert).total_seconds()
         return elapsed >= self.alert_cooldown_seconds
     
     

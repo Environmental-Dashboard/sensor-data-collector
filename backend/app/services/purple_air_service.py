@@ -37,6 +37,7 @@ THE DATA FLOW:
 Author: Frank Kusi Appiah
 """
 
+import asyncio
 import httpx
 import io
 import logging
@@ -270,10 +271,10 @@ class PurpleAirService:
         row_count = len([line for line in csv_data.split('\n') if line.strip()])
         csv_size = len(csv_data.encode('utf-8'))
         
-        # Log CSV preview (first 500 chars) for debugging
+        # Log CSV preview (first 500 chars) at debug level only -
+        # dumping full data at info level bloats log files over time
         csv_preview = csv_data[:500] + "..." if len(csv_data) > 500 else csv_data
         logger.info(f"[{sensor_name}] Uploading CSV - Size: {csv_size} bytes, Rows: {row_count}")
-        logger.info(f"[{sensor_name}] CSV content (full):\n{csv_data}")
         logger.debug(f"[{sensor_name}] CSV preview:\n{csv_preview}")
         
         # Set up the authentication header
@@ -355,7 +356,6 @@ class PurpleAirService:
                 # Retry on server errors (502, 503, 504)
                 if e.response.status_code in [502, 503, 504] and attempt < max_retries - 1:
                     logger.warning(f"[{sensor_name}] Cloud error {e.response.status_code}, retrying in {retry_delay}s...")
-                    import asyncio
                     await asyncio.sleep(retry_delay)
                     continue
                 
