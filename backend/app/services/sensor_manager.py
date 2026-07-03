@@ -618,6 +618,27 @@ class SensorManager:
             (error_type == "battery_low")  # Battery protection is expected, not an error
         )
         
+        # Immediate status-change email (separate from the 1-hour diagnostic
+        # alert below): notify as soon as a device goes down or comes back,
+        # with its details (location, IP, last data sent, new status).
+        went_down = is_error_status and was_ok_before and not is_expected_transition
+        came_back = new_status_str == "active" and old_status in error_statuses
+        if went_down or came_back:
+            last_active = sensor.get("last_active")
+            if isinstance(last_active, datetime):
+                last_active = last_active.strftime("%Y-%m-%d %H:%M:%S UTC")
+            self.email_service.send_status_change_alert(
+                sensor_id=sensor_id,
+                sensor_name=sensor_name,
+                sensor_type=sensor_type,
+                new_status=new_status_str,
+                old_status=old_status,
+                location=location,
+                ip_address=sensor.get("ip_address"),
+                last_active=str(last_active) if last_active else None,
+                reason=error_message or error_type,
+            )
+
         # Track when sensor enters error state (for 1-hour delay before alerting)
         if is_error_status and was_ok_before and not is_expected_transition:
             # Record when error state started

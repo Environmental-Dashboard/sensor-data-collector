@@ -227,6 +227,11 @@ class EmailService:
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.smtp_password = os.getenv("SMTP_PASSWORD", "")
+        # SSL (implicit TLS, e.g. Hostinger port 465) vs STARTTLS (port 587).
+        # Auto-detected from port 465; can be forced with SMTP_USE_SSL=true
+        self.smtp_use_ssl = os.getenv("SMTP_USE_SSL", "").strip().lower() in ("1", "true", "yes")
+        # Immediate emails when a device goes down / comes back (default on)
+        self.status_change_emails = os.getenv("STATUS_CHANGE_EMAILS", "true").strip().lower() not in ("0", "false", "no")
         self.alert_email = os.getenv("ALERT_EMAIL", "dashboard@oberlin.edu")
         self.from_email = os.getenv("FROM_EMAIL", self.smtp_user or "sensor-dashboard@oberlin.edu")
 
@@ -275,6 +280,26 @@ class EmailService:
     def _record_alert(self, sensor_id: str):
         """Record that an alert was sent for this sensor."""
         self._last_alerts[sensor_id] = datetime.now(timezone.utc)
+
+
+    def _smtp_send(self, msg, to_addrs: Optional[list] = None):
+        """
+        Send a MIME message over SMTP.
+
+        Supports both connection styles:
+        - Implicit SSL (port 465, e.g. Hostinger: smtp.hostinger.com)
+        - STARTTLS (port 587, e.g. Gmail)
+        """
+        use_ssl = self.smtp_use_ssl or self.smtp_port == 465
+        if use_ssl:
+            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg, to_addrs=to_addrs)
+        else:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg, to_addrs=to_addrs)
     
     
     def send_sensor_error_alert(
@@ -434,10 +459,7 @@ https://ed-sensor-dashboard.vercel.app/
             msg.attach(MIMEText(html_content, "html"))
             
             # Send email
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+            self._smtp_send(msg)
             
             # Record successful alert
             self._record_alert(sensor_id)
@@ -455,6 +477,136 @@ https://ed-sensor-dashboard.vercel.app/
             return False
     
     
+    def send_status_change_alert(
+        self,
+        sensor_id: str,
+        sensor_name: str,
+        sensor_type: str,
+        new_status: str,
+        old_status: str,
+        location: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        last_active: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """
+        Send an immediate email when a device's status changes
+        (goes down or comes back online).
+
+        Unlike send_sensor_error_alert (which waits until a sensor has been
+        down for 1 hour and includes fix steps), this fires right away with
+        the device's details: name, type, location, IP, last data sent,
+        and its new status.
+        """
+        if not self.is_configured:
+            logger.debug(f"Email not configured, skipping status change alert for {sensor_name}")
+            return False
+
+        if not self.status_change_emails:
+            return False
+
+        # Separate cooldown key so this doesn't interfere with error alerts
+        cooldown_key = f"{sensor_id}:status_change"
+        if not self._can_send_alert(cooldown_key):
+            logger.debug(f"Status change cooldown active for {sensor_name}, skipping")
+            return False
+
+        try:
+            is_down = new_status.lower() in ("error", "inactive", "offline")
+            state_line = "is currently NOT ACTIVE" if is_down else f"is now {new_status.upper()}"
+            emoji = "🔴" if is_down else "🟢"
+            header_color = "#dc3545" if is_down else "#28a745"
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"{emoji} {sensor_name} {state_line.lower()} ({old_status} -> {new_status})"
+            msg["From"] = self.from_email
+            msg["To"] = self.alert_email
+
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            last_sent = last_active or "Never / unknown"
+            type_label = sensor_type.replace("_", " ").title()
+
+            text_content = f"""
+Device Status Change
+====================
+
+The device "{sensor_name}" {state_line}.
+
+Device:         {sensor_name}
+Type:           {type_label}
+Location:       {location or 'Unknown'}
+IP Address:     {ip_address or 'N/A (POST-only / cloud device)'}
+Status:         {old_status.upper()} -> {new_status.upper()}
+Last data sent: {last_sent}
+{f'Reason:         {reason}' if reason else ''}
+Time:           {timestamp}
+Sensor ID:      {sensor_id}
+
+---
+Sensor Data Collector Dashboard
+https://ed-sensor-dashboard.vercel.app/
+"""
+
+            html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 650px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: {header_color}; color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
+        .content {{ background: #f8f9fa; padding: 20px; border: 1px solid #dee2e6; }}
+        .footer {{ background: #e9ecef; padding: 15px; border-radius: 0 0 8px 8px; font-size: 12px; color: #6c757d; }}
+        table {{ border-collapse: collapse; width: 100%; background: #fff; }}
+        td {{ padding: 8px 12px; border: 1px solid #dee2e6; }}
+        td.label {{ font-weight: bold; color: #495057; width: 160px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>{emoji} Device Status Change</h2>
+        </div>
+        <div class="content">
+            <p>The device <strong>{sensor_name}</strong> {state_line}.</p>
+            <table>
+                <tr><td class="label">Device</td><td>{sensor_name}</td></tr>
+                <tr><td class="label">Type</td><td>{type_label}</td></tr>
+                <tr><td class="label">Location</td><td>{location or 'Unknown'}</td></tr>
+                <tr><td class="label">IP Address</td><td>{ip_address or 'N/A (POST-only / cloud device)'}</td></tr>
+                <tr><td class="label">Status</td><td>{old_status.upper()} &rarr; <strong style="color: {header_color};">{new_status.upper()}</strong></td></tr>
+                <tr><td class="label">Last data sent</td><td>{last_sent}</td></tr>
+                {f'<tr><td class="label">Reason</td><td>{reason}</td></tr>' if reason else ''}
+                <tr><td class="label">Time</td><td>{timestamp}</td></tr>
+                <tr><td class="label">Sensor ID</td><td><code>{sensor_id}</code></td></tr>
+            </table>
+        </div>
+        <div class="footer">
+            <p>Sensor Data Collector Dashboard<br>
+            <a href="https://ed-sensor-dashboard.vercel.app/">View Dashboard</a></p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+            msg.attach(MIMEText(text_content, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            self._smtp_send(msg)
+
+            self._record_alert(cooldown_key)
+            logger.info(f"Status change email sent for {sensor_name} ({old_status} -> {new_status}) to {self.alert_email}")
+            return True
+
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"SMTP authentication failed sending status change alert: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to send status change email: {type(e).__name__}: {e}")
+            return False
+
+
     def send_sensor_recovery_alert(
         self,
         sensor_id: str,
@@ -546,10 +698,7 @@ Sensor Data Collector Dashboard
             msg.attach(MIMEText(text_content, "plain"))
             msg.attach(MIMEText(html_content, "html"))
             
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+            self._smtp_send(msg)
             
             # Record the recovery alert to prevent duplicates
             self._record_alert(recovery_key)
@@ -727,10 +876,7 @@ https://ed-sensor-dashboard.vercel.app/
             msg.attach(MIMEText(text_content, "plain"))
             msg.attach(MIMEText(html_content, "html"))
             
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+            self._smtp_send(msg)
             
             logger.info(f"Status report email sent to {self.alert_email}")
             return True
@@ -909,10 +1055,7 @@ https://ed-sensor-dashboard.vercel.app/
             # Send to all recipients (To + Cc)
             all_recipients = self.NEW_SENSOR_TO + self.NEW_SENSOR_CC
             
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg, to_addrs=all_recipients)
+            self._smtp_send(msg, to_addrs=all_recipients)
             
             logger.info(f"New sensor notification sent for {sensor_name} to {', '.join(self.NEW_SENSOR_TO)}")
             return True
