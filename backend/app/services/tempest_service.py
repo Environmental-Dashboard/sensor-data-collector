@@ -173,41 +173,64 @@ class TempestService:
         # [17] = report interval (min)
         
         epoch = safe_int(obs[0])
+        wind_lull_ms = safe_float(obs[1])
         wind_avg_ms = safe_float(obs[2])
         wind_gust_ms = safe_float(obs[3])
         wind_dir = safe_int(obs[4])
         pressure = safe_float(obs[6])
         temp_c = safe_float(obs[7])
         humidity = safe_float(obs[8])
+        illuminance = safe_float(obs[9])
         uv = safe_float(obs[10])
         solar = safe_float(obs[11])
         rain_mm = safe_float(obs[12])
+        precip_type = safe_int(obs[13])
+        lightning_dist_km = safe_float(obs[14])
         lightning = safe_int(obs[15])
         battery = safe_float(obs[16]) if len(obs) > 16 else 0.0
-        
+        report_interval = safe_int(obs[17]) if len(obs) > 17 else 1
+
         # Convert units
         temp_f = (temp_c * 9/5) + 32 if temp_c else 0
         wind_avg_mph = wind_avg_ms * 2.237 if wind_avg_ms else 0
         wind_gust_mph = wind_gust_ms * 2.237 if wind_gust_ms else 0
+        wind_lull_mph = wind_lull_ms * 2.237 if wind_lull_ms else 0
         rain_inches = rain_mm * 0.03937 if rain_mm else 0
-        
+        pressure_inhg = pressure * 0.02953 if pressure else 0
+        lightning_dist_mi = lightning_dist_km * 0.6214 if lightning_dist_km else 0
+
         timestamp = datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch else datetime.now(timezone.utc)
-        
+
+        # NOTE: field names must match TempestReading exactly - pydantic
+        # silently drops unknown keys, which previously zeroed out several
+        # fields (wind avg, temperature_c, solar radiation, ...)
         reading = TempestReading(
             timestamp=timestamp,
+            temperature_c=round(temp_c, 1),
             temperature_f=round(temp_f, 1),
             humidity_percent=round(humidity, 0),
-            pressure_mb=round(pressure, 1),
-            wind_speed_mph=round(wind_avg_mph, 1),
+            wind_avg_ms=round(wind_avg_ms, 1),
+            wind_avg_mph=round(wind_avg_mph, 1),
+            wind_gust_ms=round(wind_gust_ms, 1),
             wind_gust_mph=round(wind_gust_mph, 1),
+            wind_lull_ms=round(wind_lull_ms, 1),
+            wind_lull_mph=round(wind_lull_mph, 1),
             wind_direction_deg=wind_dir,
-            rain_inches=round(rain_inches, 2),
+            pressure_mb=round(pressure, 1),
+            pressure_inhg=round(pressure_inhg, 2),
             uv_index=round(uv, 1),
-            solar_radiation=round(solar, 0),
+            solar_radiation_wm2=round(solar, 0),
+            illuminance_lux=round(illuminance, 0),
+            rain_mm=round(rain_mm, 2),
+            rain_inches=round(rain_inches, 2),
+            precip_type=precip_type,
             lightning_count=lightning,
-            battery_volts=round(battery, 2)
+            lightning_avg_distance_km=round(lightning_dist_km, 1),
+            lightning_avg_distance_mi=round(lightning_dist_mi, 1),
+            battery_volts=round(battery, 2),
+            report_interval_min=report_interval,
         )
-        
+
         return reading, epoch, battery
     
     
