@@ -139,6 +139,9 @@ async def esp32_report_voltage(
     manager.update_sensor_field(body.sensor_id, "load_on", body.load_on)
     manager.update_sensor_field(body.sensor_id, "auto_mode", body.auto_mode)
     manager.update_sensor_field(body.sensor_id, "last_active", datetime.now(timezone.utc))
+    # Store what we just uploaded so "View Last Sent Data" shows it
+    manager.update_sensor_field(body.sensor_id, "last_csv_sample", csv_data)
+    manager.update_sensor_field(body.sensor_id, "last_upload_attempt", datetime.now(timezone.utc))
 
     # Only clear calibration_target when the device reports a *new* calibration_factor (i.e. it applied calibration).
     # Otherwise we would clear on the first POST (device still sends old factor 1.0) and the response would have
