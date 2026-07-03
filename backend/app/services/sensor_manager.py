@@ -134,34 +134,8 @@ class SensorManager:
         try:
             with open(self.DB_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
-            # Convert the data back to proper types
-            for sensor_id, sensor in data.items():
-                try:
-                    # Convert string types back to enums
-                    sensor["sensor_type"] = SensorType(sensor["sensor_type"])
-                    sensor["status"] = SensorStatus(sensor["status"])
-                    
-                    # Convert datetime strings back to datetime objects
-                    if sensor.get("last_active"):
-                        sensor["last_active"] = datetime.fromisoformat(sensor["last_active"])
-                    if sensor.get("created_at"):
-                        sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
-                    
-                    # Migration: voltage meter two-way fields (apply on next wake)
-                    if sensor.get("sensor_type") == SensorType.VOLTAGE_METER:
-                        sensor.setdefault("relay_mode", "automatic")
-                        sensor.setdefault("v_cutoff", 12.0)
-                        sensor.setdefault("v_reconnect", 12.6)
-                        sensor.setdefault("calibration_target", None)
-                        sensor.setdefault("calibration_factor", 1.0)
-                        sensor.setdefault("sleep_interval_minutes", 15)
-                    
-                    self._sensors[sensor_id] = sensor
-                except (ValueError, KeyError, TypeError) as e:
-                    logger.error(f"Error loading sensor {sensor_id}: {e}, skipping")
-                    continue
-            
+
+            self._restore_sensors(data)
             logger.info(f"Loaded {len(self._sensors)} sensors from database")
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing sensors database JSON: {e}")
@@ -173,8 +147,67 @@ class SensorManager:
                 logger.warning(f"Corrupted database backed up to {backup_path}")
             except Exception as backup_err:
                 logger.error(f"Failed to backup corrupted database: {backup_err}")
+            # Try to recover from the last known-good backup instead of starting empty
+            self._restore_from_backup()
         except Exception as e:
             logger.error(f"Error loading sensors database: {e}", exc_info=True)
+
+
+    def _restore_sensors(self, data: dict):
+        """Convert raw JSON data back to proper types and store in memory."""
+        for sensor_id, sensor in data.items():
+            try:
+                # Convert string types back to enums
+                sensor["sensor_type"] = SensorType(sensor["sensor_type"])
+                sensor["status"] = SensorStatus(sensor["status"])
+
+                # Convert datetime strings back to datetime objects
+                if sensor.get("last_active"):
+                    sensor["last_active"] = datetime.fromisoformat(sensor["last_active"])
+                if sensor.get("created_at"):
+                    sensor["created_at"] = datetime.fromisoformat(sensor["created_at"])
+
+                # Migration: voltage meter two-way fields (apply on next wake)
+                if sensor.get("sensor_type") == SensorType.VOLTAGE_METER:
+                    sensor.setdefault("relay_mode", "automatic")
+                    sensor.setdefault("v_cutoff", 12.0)
+                    sensor.setdefault("v_reconnect", 12.6)
+                    sensor.setdefault("calibration_target", None)
+                    sensor.setdefault("calibration_factor", 1.0)
+                    sensor.setdefault("sleep_interval_minutes", 15)
+
+                self._sensors[sensor_id] = sensor
+            except (ValueError, KeyError, TypeError) as e:
+                logger.error(f"Error loading sensor {sensor_id}: {e}, skipping")
+                continue
+
+
+    def _restore_from_backup(self):
+        """Recover sensors from the last known-good backup after corruption."""
+        backup_file = self.DB_FILE.with_suffix('.json.bak')
+        if not backup_file.exists():
+            logger.critical(
+                f"Sensors database is corrupt and no backup exists at {backup_file} - "
+                "starting with an EMPTY sensor list!"
+            )
+            return
+        try:
+            with open(backup_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self._restore_sensors(data)
+            logger.critical(
+                f"Sensors database was corrupt - recovered {len(self._sensors)} sensors "
+                f"from backup {backup_file}"
+            )
+            # Rewrite the main database from the recovered state
+            self._save_to_file()
+        except Exception as e:
+            logger.critical(
+                f"Failed to restore from backup {backup_file}: {e} - "
+                "starting with an EMPTY sensor list!",
+                exc_info=True
+            )
+            self._sensors = {}
     
     
     def _save_to_file(self):
@@ -216,7 +249,14 @@ class SensorManager:
             # Atomic rename (works on Windows too)
             temp_file.replace(self.DB_FILE)
             logger.debug(f"Saved {len(data)} sensors to database")
-            
+
+            # Keep a known-good copy for recovery if the main file gets corrupted
+            try:
+                import shutil
+                shutil.copy2(self.DB_FILE, self.DB_FILE.with_suffix('.json.bak'))
+            except Exception as backup_err:
+                logger.error(f"Failed to update database backup: {backup_err}")
+
         except PermissionError as e:
             logger.error(f"Permission denied saving sensors database: {e}")
         except OSError as e:
@@ -436,8 +476,15 @@ class SensorManager:
             sensors = [s for s in sensors if s["sensor_type"] == sensor_type]
         
         return [SensorResponse(**{k: v for k, v in s.items() if k != "upload_token"}) for s in sensors]
-    
-    
+
+
+    def has_duplicate_ip(self, ip_address: str) -> bool:
+        """Check if any sensor is already registered at this IP address."""
+        if not ip_address:
+            return False
+        return any(s.get("ip_address") == ip_address for s in self._sensors.values())
+
+
     def set_polling_frequency(self, sensor_id: str, minutes: int) -> Optional[SensorResponse]:
         """
         Update polling frequency for a sensor (in minutes).

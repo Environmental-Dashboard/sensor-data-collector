@@ -340,6 +340,14 @@ class TempestService:
                 "upload_result": upload_result
             }
             
+        except httpx.TimeoutException:
+            # Took too long - cloud API or upload was slow to respond
+            return {
+                "status": "error",
+                "sensor_name": sensor_name,
+                "error_type": "timeout",
+                "error_message": "Request to WeatherFlow Cloud API timed out. Network might be slow or the cloud service is unresponsive."
+            }
         except httpx.ConnectError as e:
             return {
                 "status": "error",

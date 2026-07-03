@@ -40,6 +40,7 @@ Author: Frank Kusi Appiah
 import httpx
 import io
 import logging
+import re
 from datetime import datetime, timezone
 
 from app.models import PurpleAirReading
@@ -285,7 +286,7 @@ class PurpleAirService:
         # Create a filename with the sensor name and timestamp
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         # Clean the sensor name (remove spaces and special characters)
-        clean_name = "".join(c if c.isalnum() else "_" for c in sensor_name)
+        clean_name = re.sub(r'_+', '_', re.sub(r'[^a-zA-Z0-9_-]', '_', sensor_name))
         filename = f"{clean_name}_{timestamp}.csv"
         
         # Encode CSV as UTF-8 for upload
