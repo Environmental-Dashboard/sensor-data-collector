@@ -347,6 +347,48 @@ body {
   gap: 20px;
 }
 
+.content-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Type-wide recording interval selector */
+.type-interval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.type-interval-label {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.type-interval select {
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 4px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.type-interval select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .content-icon {
   width: 56px;
   height: 56px;
@@ -1545,6 +1587,17 @@ html:not(.dark) .form-error {
 
   .content-header .btn {
     width: 100%;
+  }
+
+  .content-header-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .type-interval {
+    justify-content: space-between;
   }
 
   .content-body {

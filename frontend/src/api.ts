@@ -96,6 +96,13 @@ export const setPowerMode = (id: string, mode: 'normal' | 'power_saving') =>
 export const setPollingFrequency = (id: string, minutes: number) =>
   api<any>(`/api/sensors/${id}/frequency`, { method: 'POST', body: JSON.stringify({ minutes }) });
 
+// Set data recording interval for ALL sensors of a type at once
+export const setTypePollingFrequency = (type: 'purple_air' | 'tempest' | 'voltage_meter', minutes: number) =>
+  api<{ status: string; updated: number; minutes: number }>(
+    `/api/sensors/type/${type.replace('_', '-')}/frequency`,
+    { method: 'POST', body: JSON.stringify({ minutes }) }
+  );
+
 // Voltage Meter relay control (stores command; applied on next ESP32 wake)
 export const setRelayMode = (voltageMeterId: string, mode: 'automatic' | 'force_on' | 'force_off') =>
   api<any>(`/api/sensors/voltage-meter/${voltageMeterId}/relay-mode`, { method: 'POST', body: JSON.stringify({ mode }) });

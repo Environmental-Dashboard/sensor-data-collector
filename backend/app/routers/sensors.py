@@ -462,6 +462,36 @@ async def set_polling_frequency(
     return sensor
 
 
+@router.post("/type/{sensor_type}/frequency")
+async def set_type_polling_frequency(
+    sensor_type: str,
+    body: PollingFrequencyRequest,
+    manager = Depends(get_sensor_manager)
+):
+    """
+    Update the data recording interval for ALL sensors of a type at once.
+
+    sensor_type: purple-air | tempest | voltage-meter
+    """
+    type_map = {
+        "purple-air": SensorType.PURPLE_AIR,
+        "tempest": SensorType.TEMPEST,
+        "voltage-meter": SensorType.VOLTAGE_METER,
+    }
+    st = type_map.get(sensor_type)
+    if st is None:
+        raise HTTPException(status_code=400, detail=f"Unknown sensor type: {sensor_type}")
+
+    if not validate_polling_frequency(body.minutes):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid polling frequency: {body.minutes}. Must be between 1 and 1440 minutes."
+        )
+
+    updated = manager.set_type_polling_frequency(st, body.minutes)
+    return {"status": "ok", "sensor_type": sensor_type, "minutes": body.minutes, "updated": updated}
+
+
 # =============================================================================
 # RELAY CONTROL FOR VOLTAGE METERS
 # =============================================================================

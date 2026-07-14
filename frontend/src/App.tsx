@@ -287,19 +287,19 @@ export default function App() {
     setActionLoading(null);
   };
 
-  // Recording interval change for sensors
-  const handleFrequencyChange = async (sensor: Sensor, minutes: number) => {
-    setActionLoading(sensor.id);
+  // Recording interval change - applies to ALL sensors of the current type
+  const handleTypeFrequencyChange = async (type: SensorType, minutes: number) => {
+    if (type !== 'purple_air' && type !== 'tempest' && type !== 'voltage_meter') return;
     try {
-      await api.setPollingFrequency(sensor.id, minutes);
+      const result = await api.setTypePollingFrequency(type, minutes);
       const label = minutes >= 60 ? `${minutes / 60} hour${minutes >= 120 ? 's' : ''}` : `${minutes} minute${minutes > 1 ? 's' : ''}`;
-      showToast('success', `${sensor.name}: data recorded every ${label}`);
+      const typeLabel = tabs.find(t => t.id === type)?.label ?? type;
+      showToast('success', `All ${result.updated} ${typeLabel} sensors now record every ${label}`);
       fetchSensors();
     } catch (e: any) {
       const msg = typeof e.message === 'string' ? e.message : 'Failed to set interval';
       showToast('error', msg);
     }
-    setActionLoading(null);
   };
 
   // View last sent data
@@ -508,10 +508,33 @@ export default function App() {
               </div>
             </div>
             {isImplemented && (
-              <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
-                <Plus size={18} />
-                Add Sensor
-              </button>
+              <div className="content-header-actions">
+                {/* Type-wide data interval: applies to ALL sensors on this tab */}
+                {(activeTab === 'purple_air' || activeTab === 'tempest') && currentSensors.length > 0 && (() => {
+                  const freqs = [...new Set(currentSensors.map(s => s.polling_frequency || 60))];
+                  const currentMins = freqs.length === 1 ? Math.round(freqs[0] / 60) : null;
+                  const options = [1, 2, 5, 10, 15, 30, 60];
+                  return (
+                    <label className="type-interval" title={`Recording interval for all ${currentTab.label} sensors`}>
+                      <RefreshCw size={14} />
+                      <span className="type-interval-label">Record every</span>
+                      <select
+                        value={currentMins ?? ''}
+                        onChange={e => handleTypeFrequencyChange(activeTab, parseInt(e.target.value))}
+                      >
+                        {currentMins === null && <option value="" disabled>mixed</option>}
+                        {options.map(m => (
+                          <option key={m} value={m}>{m >= 60 ? `${m / 60} hour` : `${m} min`}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })()}
+                <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+                  <Plus size={18} />
+                  Add Sensor
+                </button>
+              </div>
             )}
           </div>
 
@@ -546,7 +569,6 @@ export default function App() {
                     loading={actionLoading === sensor.id}
                     onRelayControl={sensor.sensor_type === 'voltage_meter' ? (mode) => handleRelayControl(sensor, mode) : undefined}
                     onPowerModeChange={sensor.sensor_type === 'purple_air' ? (mode) => handlePowerModeChange(sensor, mode) : undefined}
-                    onFrequencyChange={sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'tempest' ? (minutes) => handleFrequencyChange(sensor, minutes) : undefined}
                     onViewLastData={() => handleViewLastData(sensor)}
                     onEditSensor={() => handleEditSensor(sensor)}
                     onSetThresholds={sensor.sensor_type === 'voltage_meter' ? () => handleSetThresholds(sensor) : undefined}
@@ -657,7 +679,6 @@ interface SensorCardProps {
   loading: boolean;
   onRelayControl?: (mode: 'auto' | 'on' | 'off') => void;
   onPowerModeChange?: (mode: 'normal' | 'power_saving') => void;
-  onFrequencyChange?: (minutes: number) => void;
   onViewLastData?: () => void;
   onEditSensor?: () => void;
   onSetThresholds?: () => void;
@@ -677,7 +698,6 @@ function SensorCard({
   loading,
   onRelayControl,
   onPowerModeChange,
-  onFrequencyChange,
   onViewLastData,
   onEditSensor,
   onSetThresholds,
@@ -935,29 +955,6 @@ function SensorCard({
                   >
                     <Moon size={14} /> Power Saving Mode
                   </button>
-                </>
-              )}
-              
-              {/* Data recording interval (Purple Air + Tempest; power-saving
-                  Purple Air is limited to coarser steps because it cycles a relay) */}
-              {(sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'tempest') && onFrequencyChange && (
-                <>
-                  <div className="dropdown-divider" />
-                  <div className="dropdown-section-label">Data Interval</div>
-                  <div className="dropdown-frequency-buttons">
-                    {(sensor.sensor_type === 'purple_air' && sensor.power_mode === 'power_saving'
-                      ? [5, 10, 15, 30, 60]
-                      : [1, 2, 5, 10, 15, 30, 60]
-                    ).map(mins => (
-                      <button
-                        key={mins}
-                        className={`freq-btn ${(sensor.polling_frequency || 60) === mins * 60 ? 'active' : ''}`}
-                        onClick={() => { onFrequencyChange(mins); setShowMenu(false); }}
-                      >
-                        {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
-                      </button>
-                    ))}
-                  </div>
                 </>
               )}
               

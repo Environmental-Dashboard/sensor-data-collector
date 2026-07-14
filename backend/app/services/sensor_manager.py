@@ -538,6 +538,20 @@ class SensorManager:
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
 
 
+    def set_type_polling_frequency(self, sensor_type: SensorType, minutes: int) -> int:
+        """
+        Apply a recording interval to EVERY sensor of the given type.
+
+        Returns the number of sensors updated.
+        """
+        updated = 0
+        for sensor_id, sensor in list(self._sensors.items()):
+            if sensor.get("sensor_type") == sensor_type:
+                if self.set_polling_frequency(sensor_id, minutes):
+                    updated += 1
+        return updated
+
+
     def get_last_sent_data(self, sensor_id: str) -> Optional[dict]:
         """
         Get the last data we generated/sent for a sensor.
