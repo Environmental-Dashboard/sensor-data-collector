@@ -86,6 +86,14 @@ function parseCsvPreview(csv: string, max = 3): { label: string; value: string }
   return pairs;
 }
 
+// Format a recording interval in seconds as "1m", "30m", "2h"
+function formatIntervalSeconds(seconds: number): string {
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = mins / 60;
+  return Number.isInteger(hours) ? `${hours}h` : `${mins}m`;
+}
+
 // Format relative time
 function timeAgo(timestamp: string | null): string {
   if (!timestamp) return 'Never';
@@ -279,15 +287,16 @@ export default function App() {
     setActionLoading(null);
   };
 
-  // Frequency change for sensors
+  // Recording interval change for sensors
   const handleFrequencyChange = async (sensor: Sensor, minutes: number) => {
     setActionLoading(sensor.id);
     try {
       await api.setPollingFrequency(sensor.id, minutes);
-      showToast('success', `Poll frequency set to ${minutes} minutes`);
+      const label = minutes >= 60 ? `${minutes / 60} hour${minutes >= 120 ? 's' : ''}` : `${minutes} minute${minutes > 1 ? 's' : ''}`;
+      showToast('success', `${sensor.name}: data recorded every ${label}`);
       fetchSensors();
     } catch (e: any) {
-      const msg = typeof e.message === 'string' ? e.message : 'Failed to set frequency';
+      const msg = typeof e.message === 'string' ? e.message : 'Failed to set interval';
       showToast('error', msg);
     }
     setActionLoading(null);
@@ -537,7 +546,7 @@ export default function App() {
                     loading={actionLoading === sensor.id}
                     onRelayControl={sensor.sensor_type === 'voltage_meter' ? (mode) => handleRelayControl(sensor, mode) : undefined}
                     onPowerModeChange={sensor.sensor_type === 'purple_air' ? (mode) => handlePowerModeChange(sensor, mode) : undefined}
-                    onFrequencyChange={sensor.sensor_type === 'purple_air' ? (minutes) => handleFrequencyChange(sensor, minutes) : undefined}
+                    onFrequencyChange={sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'tempest' ? (minutes) => handleFrequencyChange(sensor, minutes) : undefined}
                     onViewLastData={() => handleViewLastData(sensor)}
                     onEditSensor={() => handleEditSensor(sensor)}
                     onSetThresholds={sensor.sensor_type === 'voltage_meter' ? () => handleSetThresholds(sensor) : undefined}
@@ -790,6 +799,19 @@ function SensorCard({
             <span>Controls: {sensor.linked_sensor_name}</span>
           </div>
         )}
+        {/* Data recording interval */}
+        {(sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'tempest') && (
+          <div className="meta-item" title="How often data is recorded">
+            <RefreshCw size={14} />
+            <span>every {formatIntervalSeconds(sensor.polling_frequency || 60)}</span>
+          </div>
+        )}
+        {sensor.sensor_type === 'voltage_meter' && !sensor.ip_address && sensor.sleep_interval_minutes != null && (
+          <div className="meta-item" title="Device wakes and reports on this interval">
+            <RefreshCw size={14} />
+            <span>every {formatIntervalSeconds(sensor.sleep_interval_minutes * 60)}</span>
+          </div>
+        )}
         <div className="meta-item">
           <Clock size={14} />
           <span>{timeAgo(sensor.last_active)}</span>
@@ -916,18 +938,23 @@ function SensorCard({
                 </>
               )}
               
-              {/* Poll Frequency (only for power saving mode) */}
-              {sensor.sensor_type === 'purple_air' && sensor.power_mode === 'power_saving' && onFrequencyChange && (
+              {/* Data recording interval (Purple Air + Tempest; power-saving
+                  Purple Air is limited to coarser steps because it cycles a relay) */}
+              {(sensor.sensor_type === 'purple_air' || sensor.sensor_type === 'tempest') && onFrequencyChange && (
                 <>
-                  <div className="dropdown-section-label">Poll Frequency</div>
+                  <div className="dropdown-divider" />
+                  <div className="dropdown-section-label">Data Interval</div>
                   <div className="dropdown-frequency-buttons">
-                    {[5, 10, 15, 30, 60].map(mins => (
-                      <button 
+                    {(sensor.sensor_type === 'purple_air' && sensor.power_mode === 'power_saving'
+                      ? [5, 10, 15, 30, 60]
+                      : [1, 2, 5, 10, 15, 30, 60]
+                    ).map(mins => (
+                      <button
                         key={mins}
-                        className={`freq-btn ${sensor.polling_frequency === mins * 60 ? 'active' : ''}`}
+                        className={`freq-btn ${(sensor.polling_frequency || 60) === mins * 60 ? 'active' : ''}`}
                         onClick={() => { onFrequencyChange(mins); setShowMenu(false); }}
                       >
-                        {mins}m
+                        {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
                       </button>
                     ))}
                   </div>

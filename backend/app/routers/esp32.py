@@ -131,14 +131,12 @@ async def esp32_report_voltage(
             detail=f"Failed to upload to Community Hub: {e}",
         )
 
-    # Update last known state (dashboard display) and set status to ACTIVE
-    manager.update_sensor_field(body.sensor_id, "status", SensorStatus.ACTIVE)
-    manager.update_sensor_field(body.sensor_id, "status_reason", None)
-    manager.update_sensor_field(body.sensor_id, "last_error", None)
+    # Record the check-in through the status-transition logic so an
+    # offline -> active recovery sends the status-change email
+    manager.mark_device_checkin(body.sensor_id)
     manager.update_sensor_field(body.sensor_id, "battery_volts", body.voltage_v)
     manager.update_sensor_field(body.sensor_id, "load_on", body.load_on)
     manager.update_sensor_field(body.sensor_id, "auto_mode", body.auto_mode)
-    manager.update_sensor_field(body.sensor_id, "last_active", datetime.now(timezone.utc))
     # Store what we just uploaded so "View Last Sent Data" shows it
     manager.update_sensor_field(body.sensor_id, "last_csv_sample", csv_data)
     manager.update_sensor_field(body.sensor_id, "last_upload_attempt", datetime.now(timezone.utc))

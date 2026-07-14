@@ -116,9 +116,19 @@ class SensorManager:
         # This is the scheduler - it runs jobs on a timer
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
-        
+
         # Restart polling for sensors that were active
         self._restart_active_sensors()
+
+        # Staleness watchdog: detects devices that quietly stop reporting
+        # (POST-only voltage meters that never check in, Tempest stations
+        # whose cloud data goes stale) - polling alone can't catch those.
+        self.scheduler.add_job(
+            self._check_stale_sensors,
+            trigger=IntervalTrigger(seconds=60),
+            id="stale_sensor_watchdog",
+            replace_existing=True,
+        )
     
     
     # =========================================================================
@@ -235,7 +245,10 @@ class SensorManager:
                     if sensor_copy.get("error_start_time"):
                         if isinstance(sensor_copy["error_start_time"], datetime):
                             sensor_copy["error_start_time"] = sensor_copy["error_start_time"].isoformat()
-                    
+                    if sensor_copy.get("last_new_data"):
+                        if isinstance(sensor_copy["last_new_data"], datetime):
+                            sensor_copy["last_new_data"] = sensor_copy["last_new_data"].isoformat()
+
                     data[sensor_id] = sensor_copy
                 except Exception as e:
                     logger.error(f"Error serializing sensor {sensor_id}: {e}")
@@ -496,11 +509,15 @@ class SensorManager:
         if not sensor:
             return None
 
-        # Clamp and quantize to 5-minute steps
-        if minutes < 5:
-            minutes = 5
-        step = 5
-        minutes = int(round(minutes / step) * step)
+        # Power-saving Purple Air cycles a relay, so keep coarse 5-minute
+        # steps there; everything else can poll down to every minute
+        if (sensor.get("sensor_type") == SensorType.PURPLE_AIR
+                and sensor.get("power_mode") == PowerMode.POWER_SAVING.value):
+            if minutes < 5:
+                minutes = 5
+            minutes = int(round(minutes / 5) * 5)
+        else:
+            minutes = max(1, int(minutes))
 
         interval_seconds = minutes * 60
         sensor["polling_frequency"] = interval_seconds
@@ -649,7 +666,8 @@ class SensorManager:
         # Define status categories (as strings for comparison)
         # NOTE: "sleeping" and "waking" are NORMAL states in power saving mode, not errors
         error_statuses = ["error", "inactive", "offline"]
-        ok_statuses = ["active", "sleeping", "waking"]
+        # "listening" = healthy POST-only device waiting for check-ins
+        ok_statuses = ["active", "sleeping", "waking", "listening"]
         
         # Check if we need to send an alert
         is_error_status = new_status_str in error_statuses
@@ -1173,15 +1191,25 @@ class SensorManager:
             )
             
             if result["status"] == "success":
-                self._update_sensor_status(sensor, SensorStatus.ACTIVE)
-                sensor["last_active"] = datetime.now(timezone.utc)
+                upload = result.get("upload_result") or {}
+                fresh_data = upload.get("status") == "success"
+
+                # If the watchdog marked this station offline for stale data,
+                # only a FRESH observation may bring it back - the cloud API
+                # keeps serving the last old reading with HTTP 200
+                if fresh_data or sensor.get("status_reason") != "no_new_data":
+                    self._update_sensor_status(sensor, SensorStatus.ACTIVE)
+                    sensor["last_active"] = datetime.now(timezone.utc)
+                if fresh_data:
+                    # Track when we last saw genuinely new data (for watchdog)
+                    sensor["last_new_data"] = datetime.now(timezone.utc)
                 # Update battery voltage from reading
                 if result.get("reading") and result["reading"].get("battery_volts"):
                     sensor["battery_volts"] = result["reading"]["battery_volts"]
                 # Store CSV sample so "View Last Sent Data" works (same as
                 # Purple Air / Voltage Meter; skipped uploads carry no sample)
-                if "csv_sample" in result.get("upload_result", {}):
-                    sensor["last_csv_sample"] = result["upload_result"]["csv_sample"]
+                if "csv_sample" in upload:
+                    sensor["last_csv_sample"] = upload["csv_sample"]
             else:
                 error_type = result.get("error_type")
                 error_msg = result.get("error_message", "Unknown error")
@@ -1413,6 +1441,104 @@ class SensorManager:
         
         return SensorResponse(**{k: v for k, v in sensor.items() if k != "upload_token"})
     
+    # =========================================================================
+    # STALENESS WATCHDOG
+    # =========================================================================
+
+    # How long a Tempest can go without NEW cloud data before we call it
+    # offline (stations normally report every minute; the cloud API keeps
+    # serving the last stale observation with HTTP 200 when they die)
+    TEMPEST_STALE_MINUTES = 10
+
+    @staticmethod
+    def _as_datetime(value) -> Optional[datetime]:
+        """Coerce a stored timestamp (datetime or ISO string) to aware datetime."""
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                return None
+        else:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+
+    def mark_device_checkin(self, sensor_id: str):
+        """
+        Record a successful inbound check-in (e.g. ESP32 wake-POST).
+
+        Goes through _update_sensor_status so offline -> active transitions
+        trigger the status-change/recovery emails, unlike raw field updates.
+        """
+        sensor = self._sensors.get(sensor_id)
+        if not sensor:
+            return
+        self._update_sensor_status(sensor, SensorStatus.ACTIVE)
+        sensor["status_reason"] = None
+        sensor["last_error"] = None
+        sensor["last_active"] = datetime.now(timezone.utc)
+        self._save_to_file()
+
+
+    async def _check_stale_sensors(self):
+        """
+        Mark devices OFFLINE when they quietly stop reporting.
+
+        - POST-only voltage meters: no check-in for 2x the sleep interval
+        - Tempest: no NEW observation for TEMPEST_STALE_MINUTES (the cloud
+          API returns stale data with HTTP 200 when the station is dead)
+        """
+        now = datetime.now(timezone.utc)
+        changed = False
+
+        for sensor_id, sensor in list(self._sensors.items()):
+            if not sensor.get("is_active"):
+                continue
+
+            sensor_type = sensor.get("sensor_type")
+            status = sensor.get("status")
+            status_str = status.value if isinstance(status, SensorStatus) else str(status)
+
+            if sensor_type == SensorType.VOLTAGE_METER:
+                ip = (sensor.get("ip_address") or "").strip()
+                if ip:
+                    continue  # polled directly; poll failures handle it
+                if status_str not in ("listening", "active"):
+                    continue
+                interval_min = sensor.get("sleep_interval_minutes") or 15
+                threshold_min = max(interval_min * 2, 10)
+                last = self._as_datetime(sensor.get("last_active"))
+                if last and (now - last).total_seconds() > threshold_min * 60:
+                    overdue_min = int((now - last).total_seconds() / 60)
+                    self._update_sensor_status(
+                        sensor, SensorStatus.OFFLINE,
+                        f"No check-in for {overdue_min} minutes (device reports every {interval_min} min)",
+                        "no_checkin",
+                    )
+                    changed = True
+
+            elif sensor_type == SensorType.TEMPEST:
+                if status_str != "active":
+                    continue
+                last_new = self._as_datetime(sensor.get("last_new_data")) or \
+                    self._as_datetime(sensor.get("last_active"))
+                if last_new and (now - last_new).total_seconds() > self.TEMPEST_STALE_MINUTES * 60:
+                    overdue_min = int((now - last_new).total_seconds() / 60)
+                    self._update_sensor_status(
+                        sensor, SensorStatus.OFFLINE,
+                        f"No new data from station for {overdue_min} minutes - station may be offline or disconnected",
+                        "no_new_data",
+                    )
+                    changed = True
+
+        if changed:
+            self._save_to_file()
+
+
     # =========================================================================
     # CLEANUP
     # =========================================================================
