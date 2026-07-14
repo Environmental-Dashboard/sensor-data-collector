@@ -139,11 +139,9 @@ async def add_purple_air_sensor(
         )
     
     # Check if we already have a sensor with this IP
-    existing_sensors = manager.get_all_sensors(SensorType.PURPLE_AIR)
-    for sensor in existing_sensors:
-        if sensor.ip_address == request.ip_address:
-            raise HTTPException(status_code=400, detail=f"You already have a sensor at {request.ip_address}!")
-    
+    if manager.has_duplicate_ip(request.ip_address):
+        raise HTTPException(status_code=400, detail=f"You already have a sensor at {request.ip_address}!")
+
     # Add it!
     return manager.add_purple_air_sensor(request)
 
@@ -178,6 +176,10 @@ async def add_tempest_sensor(
     - device_id: The Tempest device ID (find this in the WeatherFlow app)
     - upload_token: Your cloud token
     """
+    # Check if we already have a sensor with this IP
+    if manager.has_duplicate_ip(request.ip_address):
+        raise HTTPException(status_code=400, detail=f"You already have a sensor at {request.ip_address}!")
+
     return manager.add_tempest_sensor(request)
 
 
@@ -265,7 +267,11 @@ async def add_voltage_meter(
             status_code=400,
             detail=f"Invalid IP address: {request.ip_address}. Expected format: 192.168.1.100 or leave blank for POST-only."
         )
-    
+
+    # Check if we already have a sensor with this IP (skip for POST-only devices with no IP)
+    if ip and manager.has_duplicate_ip(ip):
+        raise HTTPException(status_code=400, detail=f"You already have a sensor at {ip}!")
+
     # Validate linked sensor exists if provided
     if request.linked_sensor_id:
         if not validate_sensor_id(request.linked_sensor_id):
