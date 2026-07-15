@@ -681,14 +681,15 @@ class SensorManager:
         if is_error_status and not is_expected_transition:
             self._maybe_send_error_alert(sensor, new_status_str, error_message)
 
-        # Send recovery alert if coming back online (but not for normal power saving transitions)
+        # Sensor came back online: reset the outage clock so only CONSECUTIVE
+        # downtime counts toward the alert threshold
         was_error_before = old_status in error_statuses
-        is_ok_now = new_status_str in ["active", "sleeping"]
-        
-        # Don't send recovery for normal transitions back to sleeping from inactive
+        is_ok_now = new_status_str in ok_statuses
+
+        # Don't log recovery for normal transitions back to sleeping from inactive
         is_normal_recovery = (old_status == "inactive" and new_status_str == "sleeping")
-        
-        if was_error_before and is_ok_now and not is_normal_recovery:
+
+        if was_error_before and is_ok_now:
             # Clear error start time when sensor recovers
             if "error_start_time" in sensor:
                 error_start_time_str = sensor.get("error_start_time")
@@ -712,7 +713,8 @@ class SensorManager:
                 del sensor["error_start_time"]
             sensor.pop("error_alert_sent", None)
 
-            logger.info(f"[{sensor_name}] Recovered: {old_status} -> {new_status_str}")
+            if not is_normal_recovery:
+                logger.info(f"[{sensor_name}] Recovered: {old_status} -> {new_status_str}")
             # Recovery email disabled
             # self.email_service.send_sensor_recovery_alert(
             #     sensor_id=sensor_id,
